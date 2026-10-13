@@ -1,5 +1,12 @@
 # Marcar Pro
 
+App gratuita y libre para escribir encima de cualquier cosa en paneles interactivos
+**ViewSonic ViewBoard** (y otros Android): navegador, libro digital, PDF, PC (Windows o
+EducaAndOS) o HDMI.
+
+**[Descargar](https://github.com/maestroseb/marcarpro-releases/releases/latest)** ·
+**[Página web](https://maestroseb.github.io/marcarpro/)** · la página vive en `docs/` (GitHub Pages).
+
 Capa de anotación que escribe **por encima de cualquier app** en el ViewSonic ViewBoard,
 al estilo de Smart Ink. Se toca el icono y se escribe: no hay pantalla de inicio.
 

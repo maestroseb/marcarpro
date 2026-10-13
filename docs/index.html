@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marcar Pro · anotar sobre la pantalla en paneles ViewSonic ViewBoard</title>
+<meta name="description" content="App gratuita y libre para escribir encima de cualquier cosa en paneles interactivos ViewSonic ViewBoard y otros Android: navegador, libro digital, PDF, PC (Windows, EducaAndOS) o HDMI. Pizarra blanca con doble pauta, recortes y varios alumnos a la vez.">
+<meta name="keywords" content="Marcar Pro, ViewSonic, ViewBoard, IFP7533, panel interactivo, pizarra digital, anotar pantalla, escribir sobre la pantalla, pizarra blanca, doble pauta, EducaAndOS, docentes, Android">
+<link rel="canonical" href="https://maestroseb.github.io/marcarpro/">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="es_ES">
+<meta property="og:title" content="Marcar Pro · escribe encima de todo en tu panel interactivo">
+<meta property="og:description" content="Gratis y libre. Anota sobre el navegador, el libro digital o el PC, con pizarra blanca, recortes y varios alumnos a la vez.">
+<meta property="og:url" content="https://maestroseb.github.io/marcarpro/">
+<meta property="og:image" content="https://maestroseb.github.io/marcarpro/img/pizarra.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#2F716E">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Marcar Pro",
+  "applicationCategory": "EducationalApplication",
+  "operatingSystem": "Android 8 o superior",
+  "inLanguage": "es",
+  "description": "Capa de anotación para paneles interactivos ViewSonic ViewBoard y otros Android: escribe encima de cualquier fuente, pizarra blanca, recortes y varios alumnos a la vez.",
+  "url": "https://maestroseb.github.io/marcarpro/",
+  "downloadUrl": "https://github.com/maestroseb/marcarpro-releases/releases/latest",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+  "author": { "@type": "Person", "name": "maestroseb", "url": "https://github.com/maestroseb" },
+  "screenshot": "https://maestroseb.github.io/marcarpro/img/pizarra.jpg"
+}
+</script>
+<style>
+:root {
+  --bg: #F7F6F1;
+  --paper: #FFFFFF;
+  --ink: #1D2B2A;
+  --muted: #55625F;
+  --teal: #2F716E;
+  --teal-2: #4A9893;
+  --teal-soft: #E3EFEC;
+  --on-teal: #FFFFFF;
+  --blue: #2F63D6;
+  --red: #C8372D;
+  --rule: #C9D9E8;
+  --rule-strong: #9FB9D3;
+  --line: #DDE3DF;
+  --shadow: 0 1px 2px rgba(20, 40, 38, .06), 0 8px 28px rgba(20, 40, 38, .08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121817;
+    --paper: #1A2221;
+    --ink: #E7EEEC;
+    --muted: #A3B2AF;
+    --teal: #6BB8B2;
+    --teal-2: #4A9893;
+    --teal-soft: #1F3331;
+    --on-teal: #0E1F1E;
+    --blue: #7FA4F2;
+    --red: #F08A80;
+    --rule: #22303A;
+    --rule-strong: #2E4253;
+    --line: #2A3533;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 28px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 18px/1.6 "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--teal); }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+h1, h2, h3 { font-family: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif; line-height: 1.1; text-wrap: balance; margin: 0; }
+h2 { font-size: clamp(1.7rem, 3.2vw, 2.4rem); font-weight: 800; letter-spacing: -.01em; }
+h3 { font-size: 1.2rem; font-weight: 600; }
+p { margin: 0; }
+.eyebrow { font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+
+/* Header */
+header.top { padding-block: 18px; }
+header.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 800; font-size: 1.25rem; }
+.brand svg { width: 36px; height: 36px; }
+header.top nav { display: flex; gap: 20px; font-size: .95rem; }
+header.top nav a { color: var(--muted); text-decoration: none; }
+header.top nav a:hover { color: var(--teal); }
+
+/* Hero: a double-ruled exercise-book page */
+.hero { padding-block: 40px 64px; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 48px; align-items: center; }
+.ruled {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--rule-strong) 1px, transparent 1px),
+    linear-gradient(var(--rule) 1px, transparent 1px);
+  background-size: 100% 48px, 100% 48px;
+  background-position: 0 31px, 0 47px;
+}
+.hero h1 { font-size: clamp(2.4rem, 5.6vw, 4.2rem); font-weight: 800; letter-spacing: -.02em; margin-top: 12px; }
+.hero h1 em { font-style: normal; color: var(--teal); position: relative; white-space: nowrap; }
+.hero h1 em::after {
+  content: ""; position: absolute; left: -2%; right: -2%; bottom: -.08em; height: .32em;
+  background: no-repeat center/100% 100% url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 20' preserveAspectRatio='none'%3E%3Cpath d='M2 14 Q 30 4 60 11 T 120 10 T 198 8' fill='none' stroke='%23C8372D' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.hero .lede { margin-top: 20px; font-size: 1.15rem; color: var(--muted); max-width: 34em; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 999px; font-weight: 700; text-decoration: none; font-size: 1rem; }
+.btn-main { background: var(--teal); color: var(--on-teal); box-shadow: var(--shadow); }
+.btn-main:hover { filter: brightness(.92); }
+.btn-ghost { color: var(--ink); border: 1.5px solid var(--line); background: var(--paper); }
+.btn-ghost:hover { border-color: var(--teal); }
+.btn svg { width: 20px; height: 20px; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 22px; font-size: .9rem; color: var(--muted); list-style: none; padding: 0; }
+.facts li::before { content: "✓ "; color: var(--teal); font-weight: 700; }
+.shot { border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: var(--paper); }
+.shot figcaption { padding: 12px 16px; font-size: .9rem; color: var(--muted); border-top: 1px solid var(--line); }
+
+/* Sources strip */
+.sources { border-block: 1px solid var(--line); background: var(--paper); }
+.sources .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; padding-block: 18px; font-size: .95rem; color: var(--muted); }
+.sources strong { color: var(--ink); }
+.chip { display: inline-flex; align-items: center; gap: 8px; }
+.chip i { width: 10px; height: 10px; border-radius: 50%; background: var(--teal-2); display: inline-block; }
+
+/* Features */
+section.block { padding-block: 72px; }
+.head { max-width: 40em; display: grid; gap: 12px; margin-bottom: 36px; }
+.head p { color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.feature { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 10px; align-content: start; }
+.feature .ico { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--teal-soft); color: var(--teal); }
+.feature .ico svg { width: 22px; height: 22px; }
+.feature p { color: var(--muted); font-size: .98rem; }
+
+/* Touch table */
+.touch { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+.touch table { width: 100%; border-collapse: collapse; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.touch th, .touch td { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.touch tr:last-child td { border-bottom: 0; }
+.touch th { font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); background: var(--teal-soft); }
+.touch td:first-child { font-weight: 700; white-space: nowrap; }
+
+/* Gallery */
+.gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+
+/* Install */
+.steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; max-width: 46em; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.steps li::before { content: counter(step); width: 36px; height: 36px; border-radius: 50%; background: var(--teal); color: var(--on-teal); display: grid; place-items: center; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+.steps b { color: var(--ink); }
+.steps p { color: var(--muted); }
+.note { margin-top: 18px; color: var(--muted); font-size: .95rem; max-width: 46em; }
+
+/* FAQ */
+.faq { display: grid; gap: 12px; max-width: 52em; }
+.faq details { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+.faq summary { cursor: pointer; font-weight: 700; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::after { content: "+"; color: var(--teal); font-size: 1.3rem; line-height: 1; }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { margin-top: 10px; color: var(--muted); }
+
+footer { border-top: 1px solid var(--line); padding-block: 32px 48px; color: var(--muted); font-size: .92rem; }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; }
+
+@media (max-width: 900px) {
+  .hero .wrap, .touch { grid-template-columns: minmax(0, 1fr); }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  body { font-size: 17px; }
+  .wrap { padding-inline: 16px; }
+  .grid, .gallery { grid-template-columns: minmax(0, 1fr); }
+  header.top nav { display: none; }
+  section.block { padding-block: 52px; }
+  .touch td:first-child { white-space: normal; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="Marcar Pro, inicio">
+      <svg viewBox="0 0 108 108" aria-hidden="true"><defs><linearGradient id="g" x1="28" y1="22" x2="82" y2="88" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4A9893"/><stop offset="1" stop-color="#2F716E"/></linearGradient></defs><circle cx="54" cy="54" r="50" fill="url(#g)"/><g transform="translate(28 28) scale(2.2)"><path fill="#fff" d="M4,20L5,15.3L15.6,4.7Q17,3.3 18.4,4.7L19.3,5.6Q20.7,7 19.3,8.4L8.7,19Z"/></g><circle cx="70" cy="72" r="7" fill="#2F63D6" stroke="#fff" stroke-width="3"/></svg>
+      Marcar Pro
+    </a>
+    <nav aria-label="Secciones">
+      <a href="#que-hace">Qué hace</a>
+      <a href="#instalar">Instalar</a>
+      <a href="#preguntas">Preguntas</a>
+      <a href="https://github.com/maestroseb/marcarpro">Código</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">Para paneles interactivos ViewSonic ViewBoard</p>
+        <h1>Escribe <em>encima de todo</em> en tu panel</h1>
+        <p class="lede">Marcar Pro es una capa transparente para anotar sobre el navegador, el libro digital, un PDF o el PC del aula, sin cambiar de app. Con pizarra blanca, recortes y varios alumnos escribiendo a la vez.</p>
+        <div class="cta">
+          <a class="btn btn-main" href="https://github.com/maestroseb/marcarpro-releases/releases/latest">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+            Descargar la última versión
+          </a>
+          <a class="btn btn-ghost" href="#instalar">Cómo instalarla</a>
+        </div>
+        <ul class="facts">
+          <li>Gratis y libre (GPL-3.0)</li>
+          <li>Se actualiza sola</li>
+          <li>Sin cuentas ni anuncios</li>
+        </ul>
+      </div>
+      <figure class="shot" style="margin:0">
+        <img src="img/pizarra.jpg" width="1920" height="990" alt="Pizarra blanca de Marcar Pro con la operación 3 + 4 = 7 escrita a mano, el resultado rodeado y una estrella; a la derecha, el orbe verde de herramientas.">
+        <figcaption>La pizarra blanca, con fondo de puntos. Hay también liso, cuadros, líneas y doble pauta.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <div class="sources">
+    <div class="wrap">
+      <strong>Funciona sobre:</strong>
+      <span class="chip"><i></i>Apps de Android del panel</span>
+      <span class="chip"><i></i>PC del panel (Windows o EducaAndOS)</span>
+      <span class="chip"><i></i>Cualquier entrada HDMI</span>
+    </div>
+  </div>
+
+  <section class="block" id="que-hace">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Qué hace</p>
+        <h2>Pensada para dar clase, no para configurarla</h2>
+        <p>Se toca el orbe y se escribe. Todo lo demás está a un toque y se queda donde lo dejaste.</p>
+      </div>
+      <div class="grid">
+        <article class="feature">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.7L15.6 4.7a2 2 0 0 1 2.8 0l.9.9a2 2 0 0 1 0 2.8L8.7 19z"/></svg></span>
+          <h3>Escribe sobre cualquier fuente</h3>
+          <p>Sobre una web, el libro digital o Windows. La tinta de cada pestaña del navegador se guarda aparte.</p>
+        </article>
+        <article class="feature">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 14h18"/></svg></span>
+          <h3>Pizarra blanca sin fin</h3>
+          <p>Desliza y amplía con los dedos. Fondos liso, puntos, cuadros, líneas y doble pauta para caligrafía.</p>
+        </article>
+        <article class="feature">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>
+          <h3>Recorta a la pizarra</h3>
+          <p>Enmarca un ejercicio y pásalo a la pizarra con espacio debajo para resolverlo. También desde el PC.</p>
+        </article>
+        <article class="feature">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12m0-1.5v-2a1.5 1.5 0 0 1 3 0V12m0-1a1.5 1.5 0 0 1 3 0V12m0-.5a1.5 1.5 0 0 1 3 0V16a6 6 0 0 1-6 6h-1.5a6 6 0 0 1-5-2.7L4 15.3a1.6 1.6 0 0 1 2.6-1.9L8 15"/></svg></span>
+          <h3>Lápiz, dedo y puño</h3>
+          <p>El lápiz escribe, el dedo mueve y usa las apps, y el puño o la palma borran, como en una pizarra de verdad.</p>
+        </article>
+        <article class="feature">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20a6 6 0 0 1 12 0M14.5 15.2A4.5 4.5 0 0 1 21 19"/></svg></span>
+          <h3>Varios alumnos a la vez</h3>
+          <p>Cada uno con su trazo y su borrador, sin pisarse. Ideal para salir a la pizarra en grupo.</p>
+        </article>
+        <article class="feature">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></span>
+          <h3>Se actualiza sola</h3>
+          <p>Descarga las mejoras y las instala cuando nadie escribe. Nunca en mitad de una clase.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="block ruled" aria-labelledby="toques">
+    <div class="wrap touch">
+      <div class="head" style="margin:0">
+        <p class="eyebrow">Sin menús</p>
+        <h2 id="toques">El panel sabe qué lo está tocando</h2>
+        <p>En los paneles infrarrojos todo llega como "dedo". Marcar Pro distingue el lápiz, el dedo y el puño por el tamaño del contacto, así que no hay que cambiar de herramienta para borrar.</p>
+      </div>
+      <table>
+        <thead><tr><th scope="col">Toca</th><th scope="col">Hace</th></tr></thead>
+        <tbody>
+          <tr><td>Lápiz</td><td>Escribe con la herramienta y el color elegidos</td></tr>
+          <tr><td>Dedo</td><td>Usa las apps de debajo, o selecciona, mueve y lanza lo escrito</td></tr>
+          <tr><td>Puño o palma</td><td>Borra solo lo que toca</td></tr>
+          <tr><td>Dos dedos</td><td>Amplía o gira lo seleccionado; en la pizarra, la amplía</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="vistazo">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Un vistazo</p>
+        <h2 id="vistazo">Todo sale del orbe</h2>
+      </div>
+      <div class="gallery">
+        <figure class="shot" style="margin:0">
+          <img src="img/colores.jpg" width="1920" height="990" loading="lazy" alt="Anillo de colores abierto alrededor del orbe: negro, blanco, rojo, naranja, amarillo, verde, azul, morado y un botón para añadir colores.">
+          <figcaption>Colores: toca el punto del orbe, o mantenlo y desliza hasta el color.</figcaption>
+        </figure>
+        <figure class="shot" style="margin:0">
+          <img src="img/herramientas.jpg" width="1920" height="990" loading="lazy" alt="Anillo de herramientas abierto: bolígrafo, fluorescente, borrador, ocultar tinta, tinta mágica, formas y alumnos.">
+          <figcaption>Herramientas: bolígrafo, fluorescente, borrador, tinta mágica, formas y modo alumnos.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="instalar" aria-labelledby="instalar-t" style="background:var(--paper);border-block:1px solid var(--line)">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Instalar · unos 5 minutos</p>
+        <h2 id="instalar-t">Se instala una vez por panel</h2>
+      </div>
+      <ol class="steps">
+        <li><div><b>Descarga el APK desde el panel.</b><p>Con el panel en Android, abre en su navegador la <a href="https://github.com/maestroseb/marcarpro-releases/releases/latest">última versión</a> y toca el archivo <b>MarcarPro-….apk</b>.</p></div></li>
+        <li><div><b>Instálalo.</b><p>Si Android avisa de que el navegador no puede instalar apps, toca Ajustes, activa «Permitir de esta fuente» y vuelve.</p></div></li>
+        <li><div><b>Ábrelo y deja que se muestre sobre otras apps.</b><p>Se abre ese ajuste solo: activa Marcar Pro y vuelve. Aparece el orbe verde.</p></div></li>
+        <li><div><b>Activa la accesibilidad cuando te la pida.</b><p>Al tocar las tijeras sale un aviso con un botón que te lleva al ajuste. Sirve para recortar y para usar las apps con el dedo.</p></div></li>
+        <li><div><b>Deja que se actualice.</b><p>La primera vez que haya una versión nueva, un aviso te lleva a «Permitir de esta fuente». Después ya no hay que hacer nada.</p></div></li>
+      </ol>
+      <p class="note">Para recortar desde el PC, Marcar Pro usa el Recortar del propio panel y te pedirá una vez ver las imágenes. Si además activas «Acceso a todos los archivos», borra la copia que el panel guarda de cada recorte.</p>
+    </div>
+  </section>
+
+  <section class="block" id="preguntas" aria-labelledby="preguntas-t">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Preguntas</p>
+        <h2 id="preguntas-t">Antes de instalarla</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>¿En qué paneles funciona?</summary>
+          <p>Está hecha y probada en el ViewSonic ViewBoard IFP7533 (Android 13). También debería funcionar en otros paneles y tabletas con Android 8 o superior (recortar la pantalla necesita Android 11); si la pruebas en otro modelo, cuéntalo en GitHub. Lo que es propio de ViewSonic, como escribir sobre el PC sin que el trazo llegue a Windows o recortar desde el PC, solo está en sus paneles.</p>
+        </details>
+        <details>
+          <summary>¿Cuesta algo? ¿Tiene anuncios?</summary>
+          <p>No. Es gratuita, sin anuncios ni cuentas, y su código es libre (GPL-3.0): cualquiera puede revisarlo y mejorarlo.</p>
+        </details>
+        <details>
+          <summary>¿Recoge datos de la clase?</summary>
+          <p>No. Lo que se escribe se guarda solo en el panel. La única conexión a Internet es para comprobar en GitHub si hay una versión nueva. Con la accesibilidad activa lee la barra de direcciones del navegador para dar a cada pestaña su propia tinta, pero no guarda ni envía esas direcciones.</p>
+        </details>
+        <details>
+          <summary>¿Sustituye a la app «Marcar» del panel?</summary>
+          <p>No la toca ni la desactiva: conviven. Marcar Pro es otra app que puedes abrir cuando quieras.</p>
+        </details>
+        <details>
+          <summary>¿Puedo mejorarla?</summary>
+          <p>Sí. El código está en <a href="https://github.com/maestroseb/marcarpro">github.com/maestroseb/marcarpro</a>. Si repartes una versión modificada, publica también su código.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Marcar Pro · hecha por un docente para su aula, compartida para las demás.</span>
+    <span><a href="https://github.com/maestroseb/marcarpro">Código</a> · <a href="https://github.com/maestroseb/marcarpro-releases/releases">Versiones</a> · <a href="https://github.com/maestroseb/marcarpro/blob/main/LICENSE">Licencia GPL-3.0</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

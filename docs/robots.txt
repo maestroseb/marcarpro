@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://maestroseb.github.io/marcarpro/sitemap.xml
