@@ -217,6 +217,50 @@ class MultiTouchTest {
         assertEquals(600f, picture.bounds.width(), 30f) // 400 px at 1.5 (dp → px on this screen)
     }
 
+    @Test
+    fun aPictureMenuHasNoColoursAndDeletes() {
+        openWhiteboardWithPicture()
+        tap(750f, 400f) // selects
+        tap(750f, 400f) // menu: right of the picture, from y = 300 (rows of 48 dp = 72 px, after 8 dp = 12 px)
+        shot("picture_menu")
+        // Without the colours row, Delete is the third row.
+        tap(1000f, 300f + 12f + 72f * 2.5f)
+        stopLayer()
+        assertTrue("the picture was deleted", InkStore.read(whiteboard).none { it.tool == InkTool.IMAGE })
+    }
+
+    @Test
+    fun aCopiedPictureIsPasted() {
+        openWhiteboardWithPicture()
+        tap(750f, 400f)
+        tap(750f, 400f)
+        tap(1000f, 300f + 12f + 72f * 0.5f) // Copy
+        // Press and hold an empty spot, then let go: the copy lands there.
+        gesture(listOf(List(50) { PointF(500f, 800f) }))
+        Thread.sleep(1500)
+        shot("picture_pasted")
+        stopLayer()
+        val pictures = InkStore.read(whiteboard).filter { it.tool == InkTool.IMAGE }
+        assertEquals(2, pictures.size)
+        assertEquals(500f, pictures.last().bounds.centerX(), 30f)
+        assertEquals(800f, pictures.last().bounds.centerY(), 30f)
+    }
+
+    private fun openWhiteboardWithPicture() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val image = Bitmap.createBitmap(300, 200, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        InkStore.write(whiteboard, InkStore.encode(listOf(Stroke.picture(image, null, 600f, 300f, 900f, 500f))))
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+    }
+
+    private fun tap(x: Float, y: Float) {
+        gesture(listOf(listOf(PointF(x, y), PointF(x, y))))
+        Thread.sleep(400)
+    }
+
     private fun startLayer() {
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val until = SystemClock.uptimeMillis() + 5000

@@ -757,7 +757,10 @@ class AnnotationView(context: Context) : View(context) {
         val w = dp(236f)
         val row = dp(48f)
         val pad = dp(8f)
-        val h = pad * 2 + row * menuRows.size
+        // Pictures have no colour: with only pictures selected, the colours row is left out.
+        val colours = selection.any { it.tool != InkTool.IMAGE }
+        val rows = if (colours) menuRows.size else menuRows.size - 1
+        val h = pad * 2 + row * rows
         val gap = dp(16f)
         val margin = dp(8f)
         val sel = menuAnchor
@@ -772,7 +775,15 @@ class AnnotationView(context: Context) : View(context) {
         }
         y = y.coerceIn(margin, max(margin, height - h - margin))
         menuRect.set(x, y, x + w, y + h)
-        menuRows.forEachIndexed { i, rr -> rr.set(x, y + pad + row * i, x + w, y + pad + row * (i + 1)) }
+        var top = y + pad
+        menuRows.forEachIndexed { i, rr ->
+            if (i == COLOUR_ROW && !colours) {
+                rr.setEmpty()
+            } else {
+                rr.set(x, top, x + w, top + row)
+                top += row
+            }
+        }
         val step = (w - dp(28f)) / swatchX.size
         for (i in swatchX.indices) swatchX[i] = x + dp(14f) + step * (i + 0.5f)
     }
@@ -783,10 +794,11 @@ class AnnotationView(context: Context) : View(context) {
         canvas.drawRoundRect(menuRect, radius, radius, menuPaint)
         val icon = dp(20f)
         menuRows.forEachIndexed { i, r ->
+            if (r.isEmpty) return@forEachIndexed
             if (i == COLOUR_ROW) {
                 canvas.drawRect(r.left + dp(14f), r.top, r.right - dp(14f), r.top + dp(1f), menuDivider)
                 canvas.drawRect(r.left + dp(14f), r.bottom - dp(1f), r.right - dp(14f), r.bottom, menuDivider)
-                val current = selection.firstOrNull()?.color
+                val current = selection.firstOrNull { it.tool != InkTool.IMAGE }?.color
                 Presets.COLORS.forEachIndexed { k, c ->
                     swatchPaint.color = c
                     canvas.drawCircle(swatchX[k], r.centerY(), dp(9.5f), swatchPaint)
@@ -1553,12 +1565,15 @@ class AnnotationView(context: Context) : View(context) {
             COLOUR_ROW -> {
                 val k = swatchX.indices.minByOrNull { abs(swatchX[it] - x) } ?: return
                 val colour = Presets.COLORS[k]
-                val before = IntArray(items.size) { items[it].color }
-                for (s in items) {
+                // Only the ink takes the colour; pictures keep theirs.
+                val ink = items.filter { it.tool != InkTool.IMAGE }
+                if (ink.isEmpty()) return
+                val before = IntArray(ink.size) { ink[it].color }
+                for (s in ink) {
                     s.color = colour
                     invalidateLayer(s.bounds)
                 }
-                history.record(History.Recolored(items, before))
+                history.record(History.Recolored(ink, before))
             }
             DELETE_ROW -> removeStrokes { it in selection }
         }
