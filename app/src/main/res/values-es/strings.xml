@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="permission_needed">Necesario para mostrar la tinta encima de tus clases</string>
+    <string name="permission_unavailable">Este equipo oculta ese ajuste. Concédelo por ADB: appops set com.maestroseb.marcarpro SYSTEM_ALERT_WINDOW allow</string>
+
+    <string name="tool_pen">Bolígrafo</string>
+    <string name="tool_highlighter">Fluorescente</string>
+    <string name="tool_eraser">Borrador</string>
+    <string name="delete">Borrar</string>
+    <string name="canvas_description">Capa de anotación</string>
+
+    <string name="notification_channel">Capa de anotación</string>
+    <string name="notification_title">Marcar Pro está activo</string>
+    <string name="notification_text">Toca para abrir. Detener quita la capa de tinta.</string>
+    <string name="action_stop">Detener</string>
+
+    <string-array name="ink_color_names">
+        <item>Negro</item>
+        <item>Blanco</item>
+        <item>Rojo</item>
+        <item>Naranja</item>
+        <item>Amarillo</item>
+        <item>Verde</item>
+        <item>Azul</item>
+        <item>Morado</item>
+    </string-array>
+    <string-array name="eraser_size_names">
+        <item>Goma pequeña</item>
+        <item>Goma mediana</item>
+        <item>Goma grande</item>
+    </string-array>
+    <string-array name="size_names">
+        <item>Fino</item>
+        <item>Medio</item>
+        <item>Grueso</item>
+    </string-array>
+    <string name="relay_label">Marcar Pro · dedo a las apps</string>
+    <string name="relay_description">Permite que el dedo use las apps de debajo de la tinta mientras el lápiz sigue escribiendo, da a cada pestaña del navegador su propia tinta y hace la captura cuando recortas la pantalla con las tijeras. Marcar Pro solo reenvía tus propios toques y solo lee la barra de direcciones del navegador; nada sale del panel.</string>
+    <string name="relay_title">Activa la accesibilidad de Marcar Pro</string>
+    <string name="relay_why_crop">Para recortar la pantalla a la pizarra hace falta el servicio «Marcar Pro · dedo a las apps».</string>
+    <string name="relay_why_apps">Para que el dedo use las apps de debajo de la tinta, Marcar Pro necesita el servicio «Marcar Pro · dedo a las apps».</string>
+    <string name="relay_how">Pulsa «Abrir ajustes», elige «Marcar Pro · dedo a las apps» y actívalo. Solo hay que hacerlo una vez.</string>
+    <string name="relay_how_restricted">Este panel lo bloquea en las apps instaladas desde un archivo. Solo una vez:\n1. En la pantalla que se abre, pulsa ⋮ (arriba a la derecha) › «Permitir ajustes restringidos».\n2. Vuelve a intentarlo: Marcar Pro te llevará a activar «Marcar Pro · dedo a las apps».</string>
+    <string name="relay_open">Abrir ajustes</string>
+    <string name="relay_open_app_info">Abrir información de la app</string>
+    <string name="relay_later">Ahora no</string>
+    <string name="relay_ready">Accesibilidad activada: ya puedes usar las tijeras y el dedo en las apps</string>
+    <string name="tool_hide">Ocultar tinta</string>
+    <string name="tool_magic">Tinta mágica</string>
+    <string name="tool_pupils">Alumnos</string>
+    <string name="ring_done">Listo</string>
+    <string name="ring_edit_hint">Arrastra una herramienta para moverla · “–” la quita del anillo</string>
+    <string name="crop_take">A la pizarra</string>
+    <string name="crop_cancel">Cancelar</string>
+    <string name="crop_hint">Arrastra un recuadro sobre lo que quieres recortar</string>
+    <string name="crop_failed">Esta pantalla no se puede capturar</string>
+    <string name="crop_external">El panel no deja a las apps capturar la imagen del PC. Recorta desde el navegador del panel, o en Windows usa Win+Mayús+S y pega.</string>
+    <string name="whiteboard">Pizarra blanca</string>
+    <string name="whiteboard_on">Pizarra · arrastra con un dedo, pellizca para el zoom</string>
+    <string name="paper_label">Fondo de la pizarra</string>
+    <string-array name="paper_names">
+        <item>Liso</item>
+        <item>Puntos</item>
+        <item>Cuadros</item>
+        <item>Líneas</item>
+        <item>Doble pauta</item>
+    </string-array>
+    <string name="tool_shape">Formas</string>
+    <string name="palette_color">Color</string>
+    <string name="palette_thickness">Grosor</string>
+    <string name="palette_custom">Mis colores</string>
+    <string name="custom_add">Crear un color</string>
+    <string name="custom_save">Guardar color</string>
+    <string name="palette_size">Tamaño</string>
+    <string name="clear_hold">Mantén pulsado para borrar la pizarra</string>
+    <string name="closed_saved">Marcar Pro cerrado · tu tinta seguirá aquí la próxima vez</string>
+    <string name="board_cleared">Pizarra borrada · mantén pulsado el icono principal para deshacer</string>
+    <string name="nothing_to_clear">No hay nada que borrar</string>
+    <string name="undo_done">Deshecho</string>
+    <string name="nothing_to_undo">No hay nada que deshacer</string>
+    <string name="mode_write">Dedo: escribe · varios alumnos a la vez</string>
+    <string name="menu_copy">Copiar</string>
+    <string name="menu_duplicate">Duplicar</string>
+    <string name="copied">Copiado · mantén pulsado en un hueco para pegar</string>
+    <string name="paste_nothing">Para pegar una imagen aquí, cópiala antes (en el navegador: mantén pulsada la imagen › Copiar imagen)</string>
+    <string name="paste_failed">No se ha podido leer la imagen copiada</string>
+    <string name="panel_crop_title">Recortar desde el PC</string>
+    <string name="panel_crop_why">La imagen del PC solo la puede capturar el Recortar del panel. Marcar Pro lo abre por ti y, cuando guardes el recorte, lo lleva a la pizarra. Para encontrar ese recorte, Marcar Pro necesita ver las imágenes del panel.</string>
+    <string name="panel_crop_allow">Permitir</string>
+    <string name="files_title">Borrar los recortes del PC</string>
+    <string name="files_why">El recorte ya está en la pizarra, pero el panel guarda también una copia en Notes/Mark. Para borrarla al momento, Marcar Pro necesita «Acceso a todos los archivos»: actívalo en la pantalla que se abre. Marcar Pro solo lo usa para borrar esos recortes. Si no lo activas, las copias se quedan en la carpeta.</string>
+    <string name="mode_use_apps">Usando las apps · toca el cursor para volver a escribir</string>
+    <string name="mode_write_apps">Escribiendo · toca el cursor para usar las apps</string>
+    <string name="mode_select">Dedo: mueve lo escrito</string>
+    <string name="mode_use_pc">Usando el PC · toca el cursor para volver a escribir</string>
+    <string name="mode_write_pc">Escribiendo · toca el cursor para usar el PC</string>
+    <string name="update_ready">Hay una actualización de Marcar Pro</string>
+    <string name="update_allow">Para que Marcar Pro se actualice sola en este panel, pulsa «Abrir ajustes» y activa «Permitir de esta fuente». Solo hay que hacerlo una vez.</string>
+    <string name="updated">Marcar Pro actualizado a la versión %1$s</string>
+</resources>

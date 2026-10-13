@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Marcar Pro</string>
+    <string name="permission_needed">Needed to show ink on top of your lessons</string>
+    <string name="permission_unavailable">This device hides that setting. Grant it with ADB: appops set com.maestroseb.marcarpro SYSTEM_ALERT_WINDOW allow</string>
+
+    <string name="tool_pen">Pen</string>
+    <string name="tool_highlighter">Highlighter</string>
+    <string name="tool_eraser">Eraser</string>
+    <string name="delete">Delete</string>
+    <string name="canvas_description">Annotation layer</string>
+
+    <string name="notification_channel">Annotation layer</string>
+    <string name="notification_title">Marcar Pro is on</string>
+    <string name="notification_text">Tap to open. Stop removes the ink layer.</string>
+    <string name="action_stop">Stop</string>
+
+    <string-array name="ink_color_names">
+        <item>Black</item>
+        <item>White</item>
+        <item>Red</item>
+        <item>Orange</item>
+        <item>Yellow</item>
+        <item>Green</item>
+        <item>Blue</item>
+        <item>Purple</item>
+    </string-array>
+    <string-array name="eraser_size_names">
+        <item>Small eraser</item>
+        <item>Medium eraser</item>
+        <item>Large eraser</item>
+    </string-array>
+    <string-array name="size_names">
+        <item>Fine</item>
+        <item>Medium</item>
+        <item>Bold</item>
+    </string-array>
+    <string name="relay_label">Marcar Pro · finger to apps</string>
+    <string name="relay_description">Lets your finger use the apps under the ink while the pen keeps writing, gives each browser tab its own ink, and takes the screenshot when you cut the screen out with the scissors. Marcar Pro replays only your own taps and reads only the browser\'s address bar; nothing leaves the board.</string>
+    <string name="relay_title">Turn on Marcar Pro’s accessibility</string>
+    <string name="relay_why_crop">Cutting the screen out onto the whiteboard needs the “Marcar Pro · finger to apps” service.</string>
+    <string name="relay_why_apps">For your finger to use the apps under the ink, Marcar Pro needs the “Marcar Pro · finger to apps” service.</string>
+    <string name="relay_how">Tap “Open settings”, choose “Marcar Pro · finger to apps” and turn it on. You only do this once.</string>
+    <string name="relay_how_restricted">This board blocks it for apps installed from a file. Once only:\n1. In the screen that opens, tap ⋮ (top right) › “Allow restricted settings”.\n2. Try again: Marcar Pro will take you to turn on “Marcar Pro · finger to apps”.</string>
+    <string name="relay_open">Open settings</string>
+    <string name="relay_open_app_info">Open app info</string>
+    <string name="relay_later">Not now</string>
+    <string name="relay_ready">Accessibility on: the scissors and the finger on the apps are ready</string>
+    <string name="tool_hide">Hide ink</string>
+    <string name="tool_magic">Magic ink</string>
+    <string name="tool_pupils">Pupils</string>
+    <string name="ring_done">Done</string>
+    <string name="ring_edit_hint">Drag a tool to move it · “–” takes it out of the ring</string>
+    <string name="crop_take">To the whiteboard</string>
+    <string name="crop_cancel">Cancel</string>
+    <string name="crop_hint">Drag a box around what to cut out</string>
+    <string name="crop_failed">This screen can\'t be captured</string>
+    <string name="crop_external">The board doesn\'t let apps capture the PC\'s picture. Cut out from the board\'s browser, or in Windows use Win+Shift+S and paste.</string>
+    <string name="whiteboard">Whiteboard</string>
+    <string name="whiteboard_on">Whiteboard · drag with one finger, pinch to zoom</string>
+    <string name="paper_label">Whiteboard background</string>
+    <string-array name="paper_names">
+        <item>Plain</item>
+        <item>Dots</item>
+        <item>Squares</item>
+        <item>Lines</item>
+        <item>Double ruling</item>
+    </string-array>
+    <string name="tool_shape">Shapes</string>
+    <string name="palette_color">Colour</string>
+    <string name="palette_thickness">Thickness</string>
+    <string name="palette_custom">My colours</string>
+    <string name="custom_add">Make a colour</string>
+    <string name="custom_save">Save colour</string>
+    <string name="palette_size">Size</string>
+    <string name="clear_hold">Press and hold to clear the board</string>
+    <string name="closed_saved">Marcar Pro closed · your ink will be here next time</string>
+    <string name="board_cleared">Board cleared · hold the main button to undo</string>
+    <string name="nothing_to_clear">There is nothing to clear</string>
+    <string name="undo_done">Undone</string>
+    <string name="nothing_to_undo">Nothing to undo</string>
+    <string name="mode_write">Finger: writes · several pupils at once</string>
+    <string name="menu_copy">Copy</string>
+    <string name="menu_duplicate">Duplicate</string>
+    <string name="copied">Copied · press and hold an empty spot to paste</string>
+    <string name="paste_nothing">To paste a picture here, copy it first (in the browser: press and hold the picture › Copy image)</string>
+    <string name="paste_failed">The copied picture couldn\'t be read</string>
+    <string name="panel_crop_title">Cut out from the PC</string>
+    <string name="panel_crop_why">Only the panel\'s own Crop can capture the PC\'s picture. Marcar Pro opens it for you and, when you save the cut-out, brings it to the whiteboard. To find that cut-out, Marcar Pro needs to see the panel\'s pictures.</string>
+    <string name="panel_crop_allow">Allow</string>
+    <string name="files_title">Delete the PC cut-outs</string>
+    <string name="files_why">The cut-out is on the whiteboard, but the panel also keeps a copy in Notes/Mark. To delete it right away, Marcar Pro needs “All files access”: turn it on in the screen that opens. Marcar Pro only uses it to delete those cut-outs. If you leave it off, the copies stay in the folder.</string>
+    <string name="mode_use_apps">Using the apps · tap the cursor to write again</string>
+    <string name="mode_write_apps">Writing · tap the cursor to use the apps</string>
+    <string name="mode_select">Finger: moves the ink</string>
+    <string name="mode_use_pc">Using the PC · tap the cursor to write again</string>
+    <string name="mode_write_pc">Writing · tap the cursor to use the PC</string>
+    <string name="update_ready">A Marcar Pro update is ready</string>
+    <string name="update_allow">For Marcar Pro to update itself on this board, tap “Open settings” and turn on “Allow from this source”. You only do this once.</string>
+    <string name="updated">Marcar Pro updated to version %1$s</string>
+</resources>

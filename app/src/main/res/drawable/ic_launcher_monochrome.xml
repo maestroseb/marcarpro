@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed icon: the pen and the ink dot. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M39.18,69.39L41.08,60.46L61.22,40.32Q63.88,37.66 66.54,40.32L68.25,42.03Q70.91,44.69 68.25,47.35L48.11,67.49ZM63.90,69.00a5.6,5.6 0 1,0 11.2,0a5.6,5.6 0 1,0 -11.2,0Z" />
+</vector>

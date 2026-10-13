@@ -1,0 +1,4 @@
+# Compile the whole app ahead of time on install, so the first strokes after an install or an
+# update run at full speed instead of in the interpreter. The app is small: all of it is hot.
+HSPLcom/maestroseb/marcarpro/**->**(**)**
+Lcom/maestroseb/marcarpro/**;

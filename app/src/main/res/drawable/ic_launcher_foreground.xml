@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The orb fills the whole visible circle (radius 36 of 108): round launchers show only teal;
+     square masks (the ViewBoard sidebar) show a teal disc on white, like the other apps. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M18,54a36,36 0 1,0 72,0a36,36 0 1,0 -72,0Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="28" android:startY="22" android:endX="82" android:endY="88">
+                <item android:offset="0" android:color="#FF4A9893" />
+                <item android:offset="1" android:color="#FF2F716E" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <group android:translateX="31.58" android:translateY="31.39" android:scaleX="1.9" android:scaleY="1.9">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M4,20L5,15.3L15.6,4.7Q17,3.3 18.4,4.7L19.3,5.6Q20.7,7 19.3,8.4L8.7,19Z" />
+    </group>
+    <path android:fillColor="#FF2F63D6" android:strokeColor="#FFFFFFFF" android:strokeWidth="2.4" android:pathData="M63.90,69.00a5.6,5.6 0 1,0 11.2,0a5.6,5.6 0 1,0 -11.2,0Z" />
+</vector>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Window changes everywhere, content changes only matter in browsers (filtered in code):
+     enough to know which page is on screen. Only the address bar is ever read. Screenshots are
+     taken only when the teacher cuts a piece of the screen out onto the whiteboard. On the PC
+     source, after the panel's own Crop has saved, its "Exit" button is pressed for the teacher. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    tools:targetApi="30"
+    android:description="@string/relay_description"
+    android:notificationTimeout="150" />
