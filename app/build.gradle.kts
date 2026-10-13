@@ -20,11 +20,11 @@ android {
         applicationId = "com.maestroseb.marcarpro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.3.5"
+        versionCode = 12
+        versionName = "1.3.6"
         // Where updates come from: the GitHub repository whose latest release (tag v<versionName>)
         // carries the signed APK. Empty = no updates.
-        buildConfigField("String", "UPDATE_REPO", "\"maestroseb/marcarpro-releases\"")
+        buildConfigField("String", "UPDATE_REPO", "\"maestroseb/marcarpro\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

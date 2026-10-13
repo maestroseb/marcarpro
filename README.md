@@ -4,7 +4,7 @@ App gratuita y libre para escribir encima de cualquier cosa en paneles interacti
 **ViewSonic ViewBoard** (y otros Android): navegador, libro digital, PDF, PC (Windows o
 EducaAndOS) o HDMI.
 
-**[Descargar](https://github.com/maestroseb/marcarpro-releases/releases/latest)** ·
+**[Descargar](https://github.com/maestroseb/marcarpro/releases/latest)** ·
 **[Página web](https://maestroseb.github.io/marcarpro/)** · la página vive en `docs/` (GitHub Pages).
 
 Capa de anotación que escribe **por encima de cualquier app** en el ViewSonic ViewBoard,
