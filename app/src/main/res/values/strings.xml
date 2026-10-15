@@ -117,4 +117,8 @@
     <string name="quick_color">Recent colour</string>
     <string name="tool_lasso">Lasso</string>
     <string name="lasso_hint">Draw around what you want to select, with a finger or the pen</string>
+    <string name="setup_overlay">Display over other apps</string>
+    <string name="setup_overlay_why">To write on top of everything. Already on.</string>
+    <string name="setup_notifications">Notifications</string>
+    <string name="setup_notifications_why">Only the ongoing “Marcar Pro is on” notice, with its Stop button.</string>
 </resources>

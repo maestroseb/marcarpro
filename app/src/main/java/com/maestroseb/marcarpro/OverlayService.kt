@@ -1487,6 +1487,9 @@ class OverlayService : Service() {
     /** Everything the layer can use, with its state and the screen that turns it on. */
     private fun setupItems(): List<Setup.Item> {
         val list = ArrayList<Setup.Item>()
+        // Always granted by now (without it there is no layer to show this card), listed so the
+        // teacher sees everything the app uses.
+        list += Setup.Item(getString(R.string.setup_overlay), getString(R.string.setup_overlay_why), done = true, optional = false) {}
         val blocked = RelaySetup.blocked(this)
         list += Setup.Item(
             getString(R.string.setup_relay),
@@ -1515,6 +1518,21 @@ class OverlayService : Service() {
                         )
                     }
                 }
+            }
+        }
+        val notifications = { androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled() }
+        list += Setup.Item(
+            getString(R.string.setup_notifications),
+            getString(R.string.setup_notifications_why),
+            done = notifications(),
+            optional = true,
+        ) {
+            openForSetup(notifications) {
+                startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
             }
         }
         list += Setup.Item(
