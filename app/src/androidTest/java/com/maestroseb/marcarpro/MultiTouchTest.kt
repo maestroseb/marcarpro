@@ -262,7 +262,8 @@ class MultiTouchTest {
     }
 
     private fun startLayer() {
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // Straight to the layer (the launcher would also show the setup card over it).
+        androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, OverlayService::class.java))
         val until = SystemClock.uptimeMillis() + 5000
         while (!OverlayService.running && SystemClock.uptimeMillis() < until) Thread.sleep(100)
         Thread.sleep(1500)

@@ -98,4 +98,20 @@
     <string name="update_ready">A Marcar Pro update is ready</string>
     <string name="update_allow">For Marcar Pro to update itself on this board, tap “Open settings” and turn on “Allow from this source”. You only do this once.</string>
     <string name="updated">Marcar Pro updated to version %1$s</string>
+    <string name="setup_title">Getting Marcar Pro ready</string>
+    <string name="setup_ready">Marcar Pro is ready</string>
+    <string name="setup_intro">Turn on here, in one go, what Marcar Pro needs. Each button opens the setting; when you come back the list updates itself.</string>
+    <string name="setup_done">Done</string>
+    <string name="setup_open">Turn on</string>
+    <string name="setup_optional">%1$s (optional)</string>
+    <string name="setup_relay">Accessibility</string>
+    <string name="setup_relay_why">For the scissors and to use the apps with a finger while you write.</string>
+    <string name="setup_relay_why_restricted">For the scissors and the apps with a finger. First: in the app info, ⋮ › Allow restricted settings.</string>
+    <string name="setup_images">See the panel\'s pictures</string>
+    <string name="setup_images_why">To bring the panel\'s Crop cut-outs of the PC or HDMI to the whiteboard.</string>
+    <string name="setup_files">All files access</string>
+    <string name="setup_files_why">Only to delete the copy the panel keeps of each PC cut-out.</string>
+    <string name="setup_updates">Update itself</string>
+    <string name="setup_updates_why">“Allow from this source”, so improvements install themselves.</string>
+    <string name="images_in_settings">Turn on Permissions › Photos and videos › Allow</string>
 </resources>

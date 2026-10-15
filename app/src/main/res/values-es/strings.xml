@@ -97,4 +97,20 @@
     <string name="update_ready">Hay una actualización de Marcar Pro</string>
     <string name="update_allow">Para que Marcar Pro se actualice sola en este panel, pulsa «Abrir ajustes» y activa «Permitir de esta fuente». Solo hay que hacerlo una vez.</string>
     <string name="updated">Marcar Pro actualizado a la versión %1$s</string>
+    <string name="setup_title">Puesta a punto de Marcar Pro</string>
+    <string name="setup_ready">Marcar Pro está listo</string>
+    <string name="setup_intro">Activa aquí lo que Marcar Pro necesita, de una vez. Cada botón abre el ajuste; al volver, la lista se actualiza sola.</string>
+    <string name="setup_done">Listo</string>
+    <string name="setup_open">Activar</string>
+    <string name="setup_optional">%1$s (opcional)</string>
+    <string name="setup_relay">Accesibilidad</string>
+    <string name="setup_relay_why">Para las tijeras y para usar las apps con el dedo mientras escribes.</string>
+    <string name="setup_relay_why_restricted">Para las tijeras y las apps con el dedo. Antes: en la información de la app, ⋮ › Permitir ajustes restringidos.</string>
+    <string name="setup_images">Ver las imágenes del panel</string>
+    <string name="setup_images_why">Para llevar a la pizarra los recortes del PC o HDMI que hace el Recortar del panel.</string>
+    <string name="setup_files">Acceso a todos los archivos</string>
+    <string name="setup_files_why">Solo para borrar la copia que el panel guarda de cada recorte del PC.</string>
+    <string name="setup_updates">Actualizarse sola</string>
+    <string name="setup_updates_why">«Permitir de esta fuente», para que las mejoras se instalen solas.</string>
+    <string name="images_in_settings">Activa Permisos › Fotos y vídeos › Permitir</string>
 </resources>

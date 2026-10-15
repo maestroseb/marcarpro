@@ -26,6 +26,7 @@ import androidx.core.content.edit
 import androidx.core.graphics.get
 import java.io.File
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
@@ -47,6 +48,7 @@ class OverlayService : Service() {
         /** Opens the whiteboard (e.g. from a shortcut). */
         const val ACTION_WHITEBOARD = "com.maestroseb.marcarpro.action.WHITEBOARD"
         const val ACTION_PANEL_CROP = "com.maestroseb.marcarpro.action.PANEL_CROP"
+        const val ACTION_SETUP = "com.maestroseb.marcarpro.action.SETUP"
 
         /** Readable without binding (the boot receiver checks it). */
         @Volatile
@@ -78,8 +80,12 @@ class OverlayService : Service() {
         private const val CROP_SETTLE_MS = 120L
         private const val CROP_AFTER_WHITEBOARD_MS = 400L
         private const val CROP_LOADING_RETRY_MS = 100L
-        private const val BLANK_LEVEL = 24
+        private const val BLANK_GRID = 15
+        private const val BLANK_TOLERANCE = 20
+        private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
+        private const val SETUP_POLL_MS = 1000L
+        private const val SETUP_WAIT_MS = 3L * 60 * 1000
         private const val PANEL_CROP_TIMEOUT_MS = 10L * 60 * 1000
         private const val PANEL_CROP_RETRIES = 12
         private const val PANEL_CROP_RETRY_MS = 150L
@@ -401,7 +407,14 @@ class OverlayService : Service() {
             intent?.getBooleanExtra(EXTRA_BOOT, false) == true -> installUpdate()
             intent?.action == ACTION_STOP -> stopSelf()
             intent?.action == ACTION_WHITEBOARD -> if (!whiteboard) toggleWhiteboard()
-            intent?.action == ACTION_PANEL_CROP -> if (external) startPanelCrop()
+            intent?.action == ACTION_PANEL_CROP -> if (panelCropAsked) {
+                // The images permission was just granted from the scissors: carry on cutting.
+                panelCropAsked = false
+                startPanelCrop()
+            } else {
+                refreshSetup()
+            }
+            intent?.action == ACTION_SETUP -> showSetup()
         }
         return START_NOT_STICKY
     }
@@ -423,6 +436,7 @@ class OverlayService : Service() {
         closeFloater?.detach()
         cropView?.let { runCatching { wm.removeView(it) } }
         closePrompt()
+        closeSetup()
         hintView?.let { runCatching { wm.removeView(it) } }
         showPaperPicker(false)
         hidePalette()
@@ -896,17 +910,12 @@ class OverlayService : Service() {
     private val panelCrop by lazy { PanelCrop(this) }
     private var panelCropping = false
 
-    private fun startPanelCrop() {
+    private fun startPanelCrop(fromWhiteboard: Boolean = whiteboard) {
         if (cropping) return
         if (!panelCrop.canRead) {
             showPrompt(getString(R.string.panel_crop_title), getString(R.string.panel_crop_why), getString(R.string.panel_crop_allow)) {
-                runCatching {
-                    startActivity(
-                        Intent(this, MainActivity::class.java)
-                            .setAction(MainActivity.ACTION_ASK_IMAGES)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                }
+                panelCropAsked = true
+                askForImages()
             }
             return
         }
@@ -916,7 +925,7 @@ class OverlayService : Service() {
         closeRing()
         closeColors()
         // What gets cut out is what is under the whiteboard; our ink stays (it is part of the picture).
-        cropFromWhiteboard = whiteboard
+        cropFromWhiteboard = fromWhiteboard
         if (whiteboard) toggleWhiteboard()
         showControls(false)
         // The panel's Crop takes the touches meanwhile.
@@ -934,6 +943,17 @@ class OverlayService : Service() {
     }
 
     private var panelCropSince = 0L
+    private var panelCropAsked = false
+
+    private fun askForImages() {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .setAction(MainActivity.ACTION_ASK_IMAGES)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
 
     // The saved cut-out, read as soon as the panel has written it (while its dialogs still close).
     private var panelCropRead: List<Pair<android.net.Uri, android.graphics.Bitmap>>? = null
@@ -1053,6 +1073,13 @@ class OverlayService : Service() {
             showControls(true)
             if (shot == null || isBlank(shot)) {
                 cropping = false
+                if (panelCrop.available) {
+                    // A video input Android can't see (the panel didn't say it was on the PC): the
+                    // panel's own Crop can, so it does the cutting.
+                    if (cropWasPaused && !paused) togglePause()
+                    startPanelCrop(fromWhiteboard = wasWhiteboard)
+                    return@screenshot
+                }
                 if (wasWhiteboard) toggleWhiteboard()
                 toast(R.string.crop_failed, long = true)
             } else {
@@ -1066,13 +1093,22 @@ class OverlayService : Service() {
         for (f in listOf(orbFloater, ringFloater, colorFloater, trashFloater, whiteFloater)) f?.view?.visibility = v
     }
 
-    /** A screen the capture can't see (some video inputs) comes back black. */
+    /**
+     * A screen the capture can't see (a video input) comes back as one flat colour: black on
+     * some panels, grey on others, maybe with our own ink on top. Blank = almost every sample of
+     * a grid is the same colour.
+     */
     private fun isBlank(shot: android.graphics.Bitmap): Boolean {
-        for (i in 1..9) for (j in 1..9) {
-            val c = shot[shot.width * i / 10, shot.height * j / 10]
-            if (android.graphics.Color.red(c) + android.graphics.Color.green(c) + android.graphics.Color.blue(c) > BLANK_LEVEL) return false
+        val n = BLANK_GRID
+        val samples = IntArray(n * n) { k -> shot[shot.width * (k % n + 1) / (n + 1), shot.height * (k / n + 1) / (n + 1)] }
+        val first = samples.asList().groupingBy { it and 0xF0F0F0 }.eachCount().maxByOrNull { it.value }?.key ?: return true
+        val same = samples.count { c ->
+            val d = c and 0xFFFFFF
+            abs(android.graphics.Color.red(d) - android.graphics.Color.red(first)) <= BLANK_TOLERANCE &&
+                abs(android.graphics.Color.green(d) - android.graphics.Color.green(first)) <= BLANK_TOLERANCE &&
+                abs(android.graphics.Color.blue(d) - android.graphics.Color.blue(first)) <= BLANK_TOLERANCE
         }
-        return true
+        return same >= samples.size * BLANK_SHARE
     }
 
     private fun showCrop(shot: android.graphics.Bitmap) {
@@ -1373,6 +1409,111 @@ class OverlayService : Service() {
         if (TouchRelayService.instance != null || relayHintShown) return
         relayHintShown = true
         askForRelay(crop = false)
+    }
+
+    // endregion
+
+    // region Setup
+
+    private var setupView: SetupView? = null
+
+    // While the teacher is in Settings for one item, the card waits and comes back once it's done.
+    private var setupWaitFor: (() -> Boolean)? = null
+    private var setupWaitUntil = 0L
+    private val setupWait = object : Runnable {
+        override fun run() {
+            val check = setupWaitFor ?: return
+            when {
+                check() -> {
+                    setupWaitFor = null
+                    showSetup(evenIfReady = true)
+                }
+                SystemClock.uptimeMillis() < setupWaitUntil -> handler.postDelayed(this, SETUP_POLL_MS)
+                else -> setupWaitFor = null
+            }
+        }
+    }
+
+    /** Everything the layer can use, with its state and the screen that turns it on. */
+    private fun setupItems(): List<Setup.Item> {
+        val list = ArrayList<Setup.Item>()
+        val blocked = RelaySetup.blocked(this)
+        list += Setup.Item(
+            getString(R.string.setup_relay),
+            getString(if (blocked) R.string.setup_relay_why_restricted else R.string.setup_relay_why),
+            done = TouchRelayService.instance != null,
+            optional = false,
+        ) { openForSetup({ TouchRelayService.instance != null }) { RelaySetup.open(this, blocked) } }
+        if (panelCrop.available) {
+            list += Setup.Item(
+                getString(R.string.setup_images),
+                getString(R.string.setup_images_why),
+                done = panelCrop.canRead,
+                optional = false,
+            ) { openForSetup({ panelCrop.canRead }) { askForImages() } }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                list += Setup.Item(
+                    getString(R.string.setup_files),
+                    getString(R.string.setup_files_why),
+                    done = android.os.Environment.isExternalStorageManager(),
+                    optional = true,
+                ) {
+                    openForSetup({ android.os.Environment.isExternalStorageManager() }) {
+                        startActivity(
+                            Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, android.net.Uri.parse("package:$packageName"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }
+            }
+        }
+        list += Setup.Item(
+            getString(R.string.setup_updates),
+            getString(R.string.setup_updates_why),
+            done = packageManager.canRequestPackageInstalls(),
+            optional = false,
+        ) { openForSetup({ packageManager.canRequestPackageInstalls() }) { startActivity(updater.permissionScreen()) } }
+        return list
+    }
+
+    /**
+     * Shows the setup card: when the app is opened from its icon with something still missing
+     * (or, with [evenIfReady], to show the last tick after coming back from Settings).
+     */
+    private fun showSetup(evenIfReady: Boolean = false) {
+        if (canvas == null || cropping) return
+        if (!evenIfReady && setupItems().all { it.done || it.optional }) return
+        setupView?.let {
+            it.refresh()
+            return
+        }
+        closePrompt()
+        // Settings will open over the ink: the ink must let touches through meanwhile.
+        if (!paused) togglePause()
+        val view = SetupView(this, ::setupItems) { closeSetup() }
+        setupView = view
+        val params = WLP(WLP.MATCH_PARENT, WLP.MATCH_PARENT, WLP.TYPE_APPLICATION_OVERLAY, CANVAS_FLAGS, PixelFormat.TRANSLUCENT)
+        params.title = "Marcar Pro setup"
+        wm.addView(view, params)
+        if (external) panel?.setArea(PanelTouch.AREA_INK, screenRect)
+    }
+
+    private fun refreshSetup() = setupView?.refresh()
+
+    private fun closeSetup() {
+        setupView?.let { runCatching { wm.removeView(it) } }
+        setupView = null
+        applyReservation()
+    }
+
+    /** The card steps aside for Settings ([open]) and comes back once [done] is true. */
+    private fun openForSetup(done: () -> Boolean, open: () -> Unit) {
+        closeSetup()
+        runCatching(open)
+        setupWaitFor = done
+        setupWaitUntil = SystemClock.uptimeMillis() + SETUP_WAIT_MS
+        handler.removeCallbacks(setupWait)
+        handler.postDelayed(setupWait, SETUP_POLL_MS)
     }
 
     // endregion

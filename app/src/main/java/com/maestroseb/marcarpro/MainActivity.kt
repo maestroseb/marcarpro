@@ -28,8 +28,15 @@ class MainActivity : ComponentActivity() {
     // From the layer: to bring the panel's own cut-outs, Marcar Pro must see the panel's pictures.
     private val askImages =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_PANEL_CROP))
+            when {
+                granted -> startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_PANEL_CROP))
+                // Refused before: Android no longer asks, the switch is in the app's info.
+                !shouldShowRequestPermissionRationale(PanelCrop.PERMISSION) -> {
+                    Toast.makeText(this, R.string.images_in_settings, Toast.LENGTH_LONG).show()
+                    runCatching {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$packageName".toUri()))
+                    }
+                }
             }
             finishQuietly()
         }
@@ -70,7 +77,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startOverlay() {
-        ContextCompat.startForegroundService(this, Intent(this, OverlayService::class.java))
+        // Opened by the teacher: the layer shows what is still missing to set up.
+        ContextCompat.startForegroundService(this, Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_SETUP))
         finishQuietly()
     }
 
