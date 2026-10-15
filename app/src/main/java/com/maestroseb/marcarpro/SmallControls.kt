@@ -705,9 +705,10 @@ internal class QuickColorView(context: Context) : View(context) {
             invalidate()
         }
 
+    // The colour in use: a thin, see-through halo of its own colour, a little apart from the disc.
     private val chosen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(2.5f)
+        strokeWidth = dp(1.3f)
     }
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
@@ -738,12 +739,17 @@ internal class QuickColorView(context: Context) : View(context) {
         if (light) canvas.drawCircle(cx, cy, r, edge)
         if (active) {
             chosen.color = if (light) OrbStyle.INK else color
-            canvas.drawCircle(cx, cy, r + dp(4.5f), chosen)
+            chosen.alpha = HALO_ALPHA
+            canvas.drawCircle(cx, cy, r + dp(4f), chosen)
         }
     }
 
     override fun setPressed(pressed: Boolean) {
         super.setPressed(pressed)
         invalidate()
+    }
+
+    private companion object {
+        const val HALO_ALPHA = 100 // about 40 %
     }
 }
