@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Marcar Pro · anotar sobre la pantalla en paneles ViewSonic ViewBoard</title>
-<meta name="description" content="App gratuita y libre para escribir encima de cualquier cosa en paneles interactivos ViewSonic ViewBoard y otros Android: navegador, libro digital, PDF, PC (Windows, EducaAndOS) o HDMI. Pizarra blanca con doble pauta, recortes y varios alumnos a la vez.">
-<meta name="keywords" content="Marcar Pro, ViewSonic, ViewBoard, IFP7533, panel interactivo, pizarra digital, anotar pantalla, escribir sobre la pantalla, pizarra blanca, doble pauta, EducaAndOS, docentes, Android">
+<meta name="description" content="App gratuita y libre para escribir encima de cualquier cosa en paneles interactivos ViewSonic ViewBoard y otros Android: navegador, libro digital, PDF, PC (Windows, EducaAndOS) o HDMI. Pizarra blanca con doble pauta, pentagrama y colores de papel, recortes y varios alumnos a la vez.">
+<meta name="keywords" content="Marcar Pro, ViewSonic, ViewBoard, IFP7533, panel interactivo, pizarra digital, anotar pantalla, escribir sobre la pantalla, pizarra blanca, doble pauta, pentagrama, música, EducaAndOS, docentes, Android">
 <link rel="canonical" href="https://maestroseb.github.io/marcarpro/">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="es_ES">
@@ -157,6 +157,7 @@ section.block { padding-block: 72px; }
 
 /* Gallery */
 .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.gallery .wide { grid-column: 1 / -1; }
 
 /* Install */
 .steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; max-width: 46em; }
@@ -230,7 +231,7 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
       </div>
       <figure class="shot" style="margin:0">
         <img src="img/pizarra.jpg" width="1920" height="990" alt="Pizarra blanca de Marcar Pro con la operación 3 + 4 = 7 escrita a mano, el resultado rodeado y una estrella; a la derecha, el orbe verde de herramientas.">
-        <figcaption>La pizarra blanca, con fondo de puntos. Hay también liso, cuadros, líneas y doble pauta.</figcaption>
+        <figcaption>La pizarra blanca, con fondo de puntos. Hay también liso, cuadros, líneas, doble pauta y pentagrama.</figcaption>
       </figure>
     </div>
   </section>
@@ -260,7 +261,7 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
         <article class="feature">
           <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 14h18"/></svg></span>
           <h3>Pizarra blanca sin fin</h3>
-          <p>Desliza y amplía con los dedos. Fondos liso, puntos, cuadros, líneas y doble pauta para caligrafía.</p>
+          <p>Desliza y amplía con los dedos. Fondos liso, puntos, cuadros, líneas, doble pauta y pentagrama, en papel blanco, crema, gris, verde pizarra o negro.</p>
         </article>
         <article class="feature">
           <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>
@@ -314,11 +315,15 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
       <div class="gallery">
         <figure class="shot" style="margin:0">
           <img src="img/colores.jpg" width="1920" height="990" loading="lazy" alt="Anillo de colores abierto alrededor del orbe: negro, blanco, rojo, naranja, amarillo, verde, azul, morado y un botón para añadir colores.">
-          <figcaption>Colores: toca el punto del orbe, o mantenlo y desliza hasta el color.</figcaption>
+          <figcaption>Colores: toca el punto del orbe, o mantenlo y desliza hasta el color. Junto al orbe tienes además tres colores fijos a un toque, y puedes cambiarlos.</figcaption>
         </figure>
         <figure class="shot" style="margin:0">
           <img src="img/herramientas.jpg" width="1920" height="990" loading="lazy" alt="Anillo de herramientas abierto: bolígrafo, fluorescente, borrador, ocultar tinta, tinta mágica, formas y alumnos.">
-          <figcaption>Herramientas: bolígrafo, fluorescente, borrador, tinta mágica, formas y modo alumnos.</figcaption>
+          <figcaption>Herramientas: bolígrafo, fluorescente, borrador, tinta mágica, formas, modo alumnos y lazo para seleccionar varios objetos.</figcaption>
+        </figure>
+        <figure class="shot wide" style="margin:0">
+          <img src="img/pentagrama.jpg" width="1920" height="990" loading="lazy" alt="Pizarra en verde pizarra con pentagramas; lo escrito en tinta negra se ve en blanco: 3 + 4 = 7 y una estrella.">
+          <figcaption>Papel verde pizarra con pentagrama, para la clase de música. En los papeles oscuros, la tinta negra se ve blanca.</figcaption>
         </figure>
       </div>
     </div>
