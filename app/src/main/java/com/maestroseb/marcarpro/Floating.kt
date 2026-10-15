@@ -77,6 +77,15 @@ internal class Floater(
         if (flags == params.flags) return
         params.flags = flags
         if (attached) wm.updateViewLayout(view, params)
+        // An empty window must be GONE, not just transparent: Android 12+ blocks touches that pass
+        // through another app's visible window (keyboards and apps under it stopped responding).
+        // It goes once its closing animation is over.
+        view.removeCallbacks(hide)
+        if (touchable) view.visibility = View.VISIBLE else view.postDelayed(hide, HIDE_AFTER_MS)
+    }
+
+    private val hide = Runnable {
+        if (params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE != 0) view.visibility = View.GONE
     }
 
     fun moveTo(x: Int, y: Int) {
@@ -84,6 +93,10 @@ internal class Floater(
         cy = y
         clamp()
         place()
+    }
+
+    private companion object {
+        const val HIDE_AFTER_MS = 400L
     }
 
     /** The window's area on screen. */

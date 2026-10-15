@@ -178,14 +178,23 @@ internal class CloseTargetView(context: Context) : View(context) {
 
     init {
         alpha = 0f
+        // Hidden = GONE, not just transparent: Android 12+ blocks touches that pass through another
+        // app's visible window, even an empty one (the on-screen keyboard under the × stopped working).
+        visibility = GONE
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
+    private var shown = false
+
     fun show(visible: Boolean) {
+        shown = visible
         if (!visible) armed = false
+        if (visible) visibility = VISIBLE
         animate().alpha(if (visible) 1f else 0f)
             .translationY(if (visible) 0f else dp(24f))
-            .setDuration(if (visible) 180 else 140).start()
+            .setDuration(if (visible) 180 else 140)
+            .withEndAction { if (!shown) visibility = GONE }
+            .start()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -650,15 +659,24 @@ internal class HintView(context: Context) : TextView(context) {
             cornerRadius = dp(24f)
         }
         alpha = 0f
+        // Between messages the pill is GONE, not just transparent: Android 12+ blocks touches that
+        // pass through another app's visible window (the keyboard's middle keys under it stopped working).
+        visibility = GONE
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         accessibilityLiveRegion = ACCESSIBILITY_LIVE_REGION_POLITE
     }
 
-    private val hide = Runnable { animate().alpha(0f).setDuration(220).start() }
+    private var shown = false
+    private val hide = Runnable {
+        shown = false
+        animate().alpha(0f).setDuration(220).withEndAction { if (!shown) visibility = GONE }.start()
+    }
 
     fun show(message: CharSequence, long: Boolean) {
         removeCallbacks(hide)
+        shown = true
         text = message
+        visibility = VISIBLE
         animate().alpha(1f).setDuration(140).start()
         postDelayed(hide, if (long) LONG_MS else SHORT_MS)
     }
@@ -666,5 +684,48 @@ internal class HintView(context: Context) : TextView(context) {
     private companion object {
         const val SHORT_MS = 2200L
         const val LONG_MS = 4500L
+    }
+}
+
+/** One of the quick colours next to the orb: a disc of the colour with a white rim. */
+internal class QuickColorView(context: Context) : View(context) {
+    var color = Color.BLACK
+        set(value) {
+            if (field == value) return
+            field = value
+            contentDescription = context.getString(R.string.quick_color)
+            invalidate()
+        }
+
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
+    private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2.5f)
+        color = Color.WHITE
+    }
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = 0x33000000
+    }
+
+    init {
+        setLayerType(LAYER_TYPE_SOFTWARE, null) // the shadow layer
+        visibility = GONE
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = dp(10f) * if (isPressed) 1.2f else 1f
+        fill.color = color
+        canvas.drawCircle(cx, cy, r, fill)
+        canvas.drawCircle(cx, cy, r - dp(1.25f), rim)
+        if (androidx.core.graphics.ColorUtils.calculateLuminance(color) > 0.7) canvas.drawCircle(cx, cy, r, edge)
+    }
+
+    override fun setPressed(pressed: Boolean) {
+        super.setPressed(pressed)
+        invalidate()
     }
 }

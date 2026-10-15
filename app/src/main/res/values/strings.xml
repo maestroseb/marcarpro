@@ -114,4 +114,5 @@
     <string name="setup_updates">Update itself</string>
     <string name="setup_updates_why">“Allow from this source”, so improvements install themselves.</string>
     <string name="images_in_settings">Turn on Permissions › Photos and videos › Allow</string>
+    <string name="quick_color">Recent colour</string>
 </resources>

@@ -47,6 +47,8 @@ class MultiTouchTest {
         stopLayer()
         if (board.exists()) board.renameTo(kept)
         if (whiteboard.exists()) whiteboard.renameTo(keptWhiteboard)
+        // The orb at the right edge, out of the way of the gestures (a manual test may have moved it).
+        prefs.savePosition("orb", 1860, 420)
     }
 
     @After
@@ -244,6 +246,56 @@ class MultiTouchTest {
         assertEquals(2, pictures.size)
         assertEquals(500f, pictures.last().bounds.centerX(), 30f)
         assertEquals(800f, pictures.last().bounds.centerY(), 30f)
+    }
+
+    @Test
+    fun twoThrownPicturesFlyAtOnce() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val blue = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        val green = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF2F9E44.toInt()) }
+        InkStore.write(
+            whiteboard,
+            InkStore.encode(listOf(Stroke.picture(blue, null, 300f, 300f, 500f, 450f), Stroke.picture(green, null, 300f, 650f, 500f, 800f))),
+        )
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+        // Two gentle flicks to the right, one after the other: the first must not stop when the second is thrown.
+        gesture(listOf(List(9) { k -> PointF(400f + k * 26f, 375f) }))
+        gesture(listOf(List(9) { k -> PointF(400f + k * 26f, 725f) }))
+        Thread.sleep(4000)
+        shot("two_thrown")
+        stopLayer()
+        val (first, second) = InkStore.read(whiteboard).filter { it.tool == InkTool.IMAGE }.sortedBy { it.bounds.top }
+        // Let go at left ≈ 508; caught by the second throw it would stop near 900.
+        assertTrue("the first slid on, now at ${first.bounds.left}", first.bounds.left > 1150f)
+        assertTrue("the second slid on, now at ${second.bounds.left}", second.bounds.left > 1150f)
+    }
+
+    @Test
+    fun aZoomedPictureCanBeResizedByItsCorner() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val image = Bitmap.createBitmap(100, 60, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        InkStore.write(whiteboard, InkStore.encode(listOf(Stroke.picture(image, null, 700f, 700f, 800f, 760f))))
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+        // Two fingers spread around the picture: the whiteboard zooms ×2 about (750, 730).
+        gesture(listOf(
+            List(STEPS + 1) { k -> PointF(650f - k * 100f / STEPS, 730f) },
+            List(STEPS + 1) { k -> PointF(850f + k * 100f / STEPS, 730f) },
+        ))
+        Thread.sleep(500)
+        tap(750f, 730f) // selects: on screen it now spans 650..850 × 670..790
+        // The bottom-right handle sits 10 dp (15 px on screen) outside the corner, whatever the zoom.
+        gesture(listOf(List(STEPS + 1) { k -> PointF(865f + k * 100f / STEPS, 805f + k * 50f / STEPS) }))
+        Thread.sleep(600)
+        shot("zoomed_resize")
+        stopLayer()
+        val picture = InkStore.read(whiteboard).single { it.tool == InkTool.IMAGE }
+        assertTrue("resized to ${picture.bounds.width()}", picture.bounds.width() > 130f)
     }
 
     private fun openWhiteboardWithPicture() {

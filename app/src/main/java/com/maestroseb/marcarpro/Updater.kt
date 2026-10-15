@@ -38,7 +38,7 @@ internal class Updater(context: Context) {
     private val prefs = this.context.getSharedPreferences("marcar_updates", Context.MODE_PRIVATE)
     private val apk = File(this.context.cacheDir, "update.apk")
 
-    /** Checks GitHub (at most once a day) and downloads a newer, valid release. */
+    /** Checks GitHub (at most every few hours, or when [force]d) and downloads a newer, valid release. */
     fun checkAndDownload(force: Boolean = false) {
         if (BuildConfig.UPDATE_REPO.isEmpty()) return
         val now = System.currentTimeMillis()
@@ -177,7 +177,7 @@ internal class Updater(context: Context) {
         private const val TAG = "MarcarUpdate"
         private const val KEY_CHECKED = "checked"
         private const val KEY_READY = "ready"
-        private const val CHECK_EVERY_MS = 24L * 60 * 60 * 1000
+        private const val CHECK_EVERY_MS = 6L * 60 * 60 * 1000
 
         @Suppress("DEPRECATION")
         private val SIGNATURES = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {

@@ -219,17 +219,29 @@ class AnnotationView(context: Context) : View(context) {
     private var pinchX = 0f
     private var pinchY = 0f
     private val boxPts = FloatArray(10)
+    private val boxScreen = FloatArray(10)
     private val boxPath = Path()
     private val tmpRect = RectF()
     private val velocity = VelocityTracker.obtain()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
-    private var flying = false
-    private var flightVx = 0f
-    private var flightVy = 0f
-    private var flightTime = 0L
-    private val flightBounds = RectF()
-    private val flightArea = RectF()
-    private val flightStep = Runnable { stepFlight() }
+    /** A thrown object sliding on by itself; several can fly at once, each landing on its own. */
+    private class Flight(val items: List<Stroke>, val matrix: Matrix, val bounds: RectF, val area: RectF, var vx: Float, var vy: Float) {
+        var time = SystemClock.uptimeMillis()
+    }
+
+    private val flights = ArrayList<Flight>()
+
+    // Strokes in the air: drawn through their flight's matrix, not from the layer, and not picked up.
+    private val airborne = HashSet<Stroke>()
+    private val flying get() = flights.isNotEmpty()
+    private val flightStep = Runnable { stepFlights() }
+
+    /** What the layer leaves out: the strokes in hand and the ones in the air. */
+    private val offLayer = object : AbstractSet<Stroke>() {
+        override val size get() = lifted.size + airborne.size
+        override fun contains(element: Stroke) = element in lifted || element in airborne
+        override fun iterator() = (lifted.asSequence() + airborne.asSequence()).iterator()
+    }
     private val clipboard = ArrayList<Stroke>()
     private var copiedAt = 0L
     // A finger held still on empty space arms the lasso (multi-select) or, after Copy, pastes.
@@ -489,7 +501,7 @@ class AnnotationView(context: Context) : View(context) {
 
     private fun redrawLayer() {
         dirty.setEmpty()
-        layer.redraw(strokes, lifted, camera)
+        layer.redraw(strokes, offLayer, camera)
         invalidate()
     }
 
@@ -513,7 +525,7 @@ class AnnotationView(context: Context) : View(context) {
 
     private fun repaintDirty() {
         if (dirty.isEmpty) return
-        layer.repaint(dirty, strokes, lifted, camera)
+        layer.repaint(dirty, strokes, offLayer, camera)
         dirty.setEmpty()
     }
 
@@ -572,9 +584,10 @@ class AnnotationView(context: Context) : View(context) {
             if (!inkHidden) {
                 if (panning) {
                     visibleWorld()
-                    for (s in strokes) if (s !in lifted && RectF.intersects(s.bounds, visible)) drawStroke(canvas, s, 1f)
+                    for (s in strokes) if (s !in offLayer && RectF.intersects(s.bounds, visible)) drawStroke(canvas, s, 1f)
                 }
                 if (lifted.isNotEmpty()) canvas.withMatrix(liveMatrix) { for (s in lifted) drawStroke(this, s, 1f) }
+                for (f in flights) canvas.withMatrix(f.matrix) { for (s in f.items) drawStroke(this, s, 1f) }
                 drawFades(canvas)
             }
             for (live in inking.values) {
@@ -587,11 +600,12 @@ class AnnotationView(context: Context) : View(context) {
             }
             drawPrediction(canvas)
             drawMagic(canvas)
-            if (selection.isNotEmpty()) drawSelection(canvas)
             drawErasers(canvas)
             if (gesture == Gesture.LASSO && lassoArmed) drawLasso(canvas)
         }
-        // The menu is in screen coordinates: on a moved or zoomed whiteboard it stays on screen, at its size.
+        // The selection box and the menu are drawn in screen coordinates: on a zoomed whiteboard they
+        // keep their size (and their handles stay as easy to grab).
+        if (selection.isNotEmpty() && !inkHidden) drawSelection(canvas)
         if (selection.isNotEmpty() && menuShown && gesture == Gesture.NONE && !flying) drawMenu(canvas) else menuRect.setEmpty()
     }
 
@@ -718,24 +732,26 @@ class AnnotationView(context: Context) : View(context) {
         // While the selection itself is being handled, the box follows it.
         val following = gesture != Gesture.NONE && lifted.isNotEmpty() && lifted.containsAll(selection)
         selectionBox(if (following) liveMatrix else null)
+        val p = boxScreen
+        camera.mapPoints(p, boxPts)
         boxPath.rewind()
-        boxPath.moveTo(boxPts[0], boxPts[1])
-        boxPath.lineTo(boxPts[2], boxPts[3])
-        boxPath.lineTo(boxPts[6], boxPts[7])
-        boxPath.lineTo(boxPts[4], boxPts[5])
+        boxPath.moveTo(p[0], p[1])
+        boxPath.lineTo(p[2], p[3])
+        boxPath.lineTo(p[6], p[7])
+        boxPath.lineTo(p[4], p[5])
         boxPath.close()
         canvas.drawPath(boxPath, boxPaint)
         // Stem and rotate handle (a round arrow inside a circle).
-        val topX = (boxPts[0] + boxPts[2]) / 2f
-        val topY = (boxPts[1] + boxPts[3]) / 2f
-        canvas.drawLine(topX, topY, boxPts[8], boxPts[9], handleRing)
+        val topX = (p[0] + p[2]) / 2f
+        val topY = (p[1] + p[3]) / 2f
+        canvas.drawLine(topX, topY, p[8], p[9], handleRing)
         val hr = dp(HANDLE_DP)
         for (k in 0 until 5) {
-            canvas.drawCircle(boxPts[2 * k], boxPts[2 * k + 1], hr, handleFill)
-            canvas.drawCircle(boxPts[2 * k], boxPts[2 * k + 1], hr, handleRing)
+            canvas.drawCircle(p[2 * k], p[2 * k + 1], hr, handleFill)
+            canvas.drawCircle(p[2 * k], p[2 * k + 1], hr, handleRing)
         }
         val ar = hr * 0.5f
-        tmpRect.set(boxPts[8] - ar, boxPts[9] - ar, boxPts[8] + ar, boxPts[9] + ar)
+        tmpRect.set(p[8] - ar, p[9] - ar, p[8] + ar, p[9] + ar)
         canvas.drawArc(tmpRect, -20f, 250f, false, handleRing)
     }
 
@@ -749,7 +765,8 @@ class AnnotationView(context: Context) : View(context) {
         boxPts[2] = r.right; boxPts[3] = r.top
         boxPts[4] = r.left; boxPts[5] = r.bottom
         boxPts[6] = r.right; boxPts[7] = r.bottom
-        boxPts[8] = r.centerX(); boxPts[9] = r.top - dp(ROTATE_STEM_DP)
+        // The stem keeps its length on screen whatever the whiteboard's zoom.
+        boxPts[8] = r.centerX(); boxPts[9] = r.top - dp(ROTATE_STEM_DP) / zoom
         m?.mapPoints(boxPts)
     }
 
@@ -973,7 +990,12 @@ class AnnotationView(context: Context) : View(context) {
             startPinch(e, i)
             return
         }
-        if (gesture == Gesture.NONE) stopFlight()
+        if (gesture == Gesture.NONE) {
+            // A finger catches what it touches (the rest keep flying); an eraser lands them all,
+            // so nothing it rubs out is somewhere else.
+            if (contact == Contact.FINGER) catchAt(x, y)
+            else if (contact == Contact.ERASER || tool == Tool.ERASER) stopFlight()
+        }
 
         val writing = inking.isNotEmpty() || erasing.isNotEmpty()
         // Palm rejection: while someone writes, a finger never interrupts. With one writer (the
@@ -1393,7 +1415,7 @@ class AnnotationView(context: Context) : View(context) {
                 return
             }
         }
-        val hit = strokes.lastOrNull { it.hits(x, y, dp(16f)) }
+        val hit = strokes.lastOrNull { it !in airborne && it.hits(x, y, dp(16f) / zoom) }
         if (hit != null) {
             clearSelection()
             wasSelected = false
@@ -1419,7 +1441,7 @@ class AnnotationView(context: Context) : View(context) {
     /** Which handle is under ([x], [y]): a corner index (0..3), [ROTATE_HANDLE], or -1. */
     private fun handleAt(x: Float, y: Float): Int {
         selectionBox(null)
-        val reach = dp(HANDLE_DP) * 2.2f
+        val reach = dp(HANDLE_DP) * 2.2f / zoom // as wide on screen at any zoom
         if (hypot(x - boxPts[8], y - boxPts[9]) < reach) return ROTATE_HANDLE
         for (k in 0 until 4) if (hypot(x - boxPts[2 * k], y - boxPts[2 * k + 1]) < reach) return k
         return -1
@@ -1494,47 +1516,83 @@ class AnnotationView(context: Context) : View(context) {
         lifted.clear()
     }
 
+    /** The object in hand is thrown: it flies on by itself, and the hand is free for the next one. */
     private fun startFlight(vx: Float, vy: Float) {
-        flightBounds.setEmpty()
-        for (s in lifted) flightBounds.union(s.bounds)
+        val items = lifted.toList()
+        val bounds = RectF()
+        for (s in items) bounds.union(s.bounds)
         // It bounces off the edges of the screen (on the whiteboard, of the part of it on screen).
         visibleWorld()
-        flightArea.set(visible)
-        flightVx = vx
-        flightVy = vy
-        flightTime = SystemClock.uptimeMillis()
-        flying = true
-        postOnAnimation(flightStep)
+        flights += Flight(items, Matrix(liveMatrix), bounds, RectF(visible), vx, vy)
+        airborne.addAll(items)
+        liveMatrix.reset()
+        lifted.clear()
+        if (flights.size == 1) postOnAnimation(flightStep)
     }
 
-    private fun stepFlight() {
+    private fun stepFlights() {
         if (!flying) return
         val now = SystemClock.uptimeMillis()
-        val dt = min(32L, now - flightTime).toFloat()
-        flightTime = now
-        liveMatrix.postTranslate(flightVx * dt, flightVy * dt)
-        liveMatrix.mapRect(tmpRect, flightBounds)
-        val a = flightArea
-        if (tmpRect.left < a.left) { liveMatrix.postTranslate(a.left - tmpRect.left, 0f); flightVx = abs(flightVx) * BOUNCE }
-        if (tmpRect.right > a.right) { liveMatrix.postTranslate(a.right - tmpRect.right, 0f); flightVx = -abs(flightVx) * BOUNCE }
-        if (tmpRect.top < a.top) { liveMatrix.postTranslate(0f, a.top - tmpRect.top); flightVy = abs(flightVy) * BOUNCE }
-        if (tmpRect.bottom > a.bottom) { liveMatrix.postTranslate(0f, a.bottom - tmpRect.bottom); flightVy = -abs(flightVy) * BOUNCE }
-        val k = exp(-dt / FLIGHT_DECAY_MS)
-        flightVx *= k
-        flightVy *= k
+        val it = flights.iterator()
+        while (it.hasNext()) {
+            val f = it.next()
+            val dt = min(32L, now - f.time).toFloat()
+            f.time = now
+            val m = f.matrix
+            m.postTranslate(f.vx * dt, f.vy * dt)
+            m.mapRect(tmpRect, f.bounds)
+            val a = f.area
+            if (tmpRect.left < a.left) { m.postTranslate(a.left - tmpRect.left, 0f); f.vx = abs(f.vx) * BOUNCE }
+            if (tmpRect.right > a.right) { m.postTranslate(a.right - tmpRect.right, 0f); f.vx = -abs(f.vx) * BOUNCE }
+            if (tmpRect.top < a.top) { m.postTranslate(0f, a.top - tmpRect.top); f.vy = abs(f.vy) * BOUNCE }
+            if (tmpRect.bottom > a.bottom) { m.postTranslate(0f, a.bottom - tmpRect.bottom); f.vy = -abs(f.vy) * BOUNCE }
+            val k = exp(-dt / FLIGHT_DECAY_MS)
+            f.vx *= k
+            f.vy *= k
+            if (hypot(f.vx, f.vy) * zoom < dp(FLIGHT_STOP_DP_PER_MS)) {
+                it.remove()
+                land(f)
+            }
+        }
         invalidate()
-        if (hypot(flightVx, flightVy) * zoom < dp(FLIGHT_STOP_DP_PER_MS)) stopFlight() else postOnAnimation(flightStep)
+        if (flying) postOnAnimation(flightStep)
+    }
+
+    /** Puts a thrown object down where it is now, as one undoable move. */
+    private fun land(f: Flight) {
+        airborne.removeAll(f.items.toSet())
+        for (s in f.items) invalidateLayer(s.bounds)
+        if (!f.matrix.isIdentity && f.items.isNotEmpty()) {
+            val scale = f.matrix.mapRadius(1f)
+            for (s in f.items) s.transform(f.matrix, scale)
+            history.record(History.Transformed(f.items, Matrix(f.matrix), scale))
+            for (s in f.items) invalidateLayer(s.bounds)
+        }
     }
 
     /** Lands anything still flying, so what is saved is where it shows. */
     fun settle() = stopFlight()
 
-    /** Lands a thrown object where it is now. */
+    /** Lands every thrown object where it is now. */
     private fun stopFlight() {
         if (!flying) return
-        flying = false
         removeCallbacks(flightStep)
-        commitTransform()
+        val all = flights.toList()
+        flights.clear()
+        for (f in all) land(f)
+        invalidate()
+    }
+
+    /** A finger on a flying object catches it (it lands there and can be picked up); the others fly on. */
+    private fun catchAt(x: Float, y: Float) {
+        val f = flights.lastOrNull { f ->
+            f.matrix.mapRect(tmpRect, f.bounds)
+            tmpRect.contains(x, y)
+        } ?: return
+        flights.remove(f)
+        land(f)
+        if (!flying) removeCallbacks(flightStep)
+        invalidate()
     }
 
     private fun onMenuTap(x: Float, y: Float) {
@@ -1639,7 +1697,7 @@ class AnnotationView(context: Context) : View(context) {
             setPath(lasso, Region(b.left.toInt() - 1, b.top.toInt() - 1, b.right.toInt() + 1, b.bottom.toInt() + 1))
         }
         val picked = strokes.filter { s ->
-            RectF.intersects(b, s.bounds) &&
+            s !in airborne && RectF.intersects(b, s.bounds) &&
                 s.points.count { region.contains(it.x.toInt(), it.y.toInt()) } * 2 >= s.points.size
         }
         lasso.rewind()
@@ -1657,7 +1715,7 @@ class AnnotationView(context: Context) : View(context) {
         selection.addAll(items)
         selectionRect.setEmpty()
         for (s in items) selectionRect.union(s.bounds)
-        selectionRect.inset(-dp(10f), -dp(10f))
+        selectionRect.inset(-dp(10f) / zoom, -dp(10f) / zoom)
         invalidate()
     }
 

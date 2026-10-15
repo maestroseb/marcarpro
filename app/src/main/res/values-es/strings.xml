@@ -113,4 +113,5 @@
     <string name="setup_updates">Actualizarse sola</string>
     <string name="setup_updates_why">«Permitir de esta fuente», para que las mejoras se instalen solas.</string>
     <string name="images_in_settings">Activa Permisos › Fotos y vídeos › Permitir</string>
+    <string name="quick_color">Color reciente</string>
 </resources>

@@ -73,6 +73,7 @@ class OverlayService : Service() {
         private const val PAGE_RETRY_MS = 300L
         private const val PAGE_FILE_DAYS = 30L
         private const val UPDATE_FIRST_CHECK_MS = 60_000L
+        private const val FRESH_START_MS = 10L * 60 * 1000
         private const val UPDATE_TICK_MS = 10L * 60 * 1000
         private const val UPDATE_IDLE_MS = 30L * 60 * 1000
 
@@ -84,6 +85,10 @@ class OverlayService : Service() {
         private const val BLANK_TOLERANCE = 20
         private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
+        private const val QUICK_DISTANCE_DP = 60f
+        // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge).
+        private val QUICK_ANGLES_RIGHT = doubleArrayOf(20.0, 45.0, 70.0)
+        private val QUICK_ANGLES_LEFT = doubleArrayOf(160.0, 135.0, 110.0)
         private const val SETUP_POLL_MS = 1000L
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
         private const val PANEL_CROP_TIMEOUT_MS = 10L * 60 * 1000
@@ -179,10 +184,22 @@ class OverlayService : Service() {
     // installed only when nobody is writing.
     private val updates = Executors.newSingleThreadExecutor()
     private lateinit var updater: Updater
-    private var lastActivity = SystemClock.uptimeMillis()
+    private val startedAt = SystemClock.uptimeMillis()
+    private var lastActivity = startedAt
+    private var firstCheck = true
     private val updateTick = object : Runnable {
         override fun run() {
-            updates.execute { updater.checkAndDownload() }
+            // The first look after starting (the panel switched on) always asks GitHub.
+            val force = firstCheck
+            firstCheck = false
+            updates.execute {
+                updater.checkAndDownload(force)
+                // Just switched on and nobody has used it yet: the update goes in now, before class
+                // (a few seconds; the ink is saved and comes back). Later, only after a long pause.
+                if (updater.ready && lastActivity == startedAt && SystemClock.uptimeMillis() - startedAt < FRESH_START_MS) {
+                    handler.post(::installUpdate)
+                }
+            }
             if (SystemClock.uptimeMillis() - lastActivity > UPDATE_IDLE_MS) installUpdate()
             handler.postDelayed(this, UPDATE_TICK_MS)
         }
@@ -299,6 +316,7 @@ class OverlayService : Service() {
             flags = WLP.FLAG_NOT_TOUCHABLE or WLP.FLAG_WATCH_OUTSIDE_TOUCH)
         ringFloater = ringF
         ringF.attach(orbAt)
+        orbitView.visibility = View.GONE // closed (see Floater.setTouchable)
         orbitView.onEmptyTap = ::closeRing
         orbitView.onOutside = ::onOutsideRing
         val colors = ColorRingView(this, ::onColorItem)
@@ -307,6 +325,7 @@ class OverlayService : Service() {
             flags = WLP.FLAG_NOT_TOUCHABLE or WLP.FLAG_WATCH_OUTSIDE_TOUCH)
         colorFloater = colorF
         colorF.attach(orbAt)
+        colors.visibility = View.GONE
         colors.onEmptyTap = ::closeColors
         colors.onOutside = { x, y -> if (!nearOrb(x, y)) closeColors() }
         val orb = OrbButton(this)
@@ -333,6 +352,8 @@ class OverlayService : Service() {
             longPressEnabled = { !orb.downOnBadge && !orb.downOnDot },
             onDragStart = {
                 closeRing()
+                orbDragging = true
+                updateQuick()
                 target.show(true)
             },
             onDragMove = ::onOrbDragged,
@@ -348,9 +369,20 @@ class OverlayService : Service() {
                     orb.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
                     prefs.savePosition("orb", x, y)
                     reserve(PanelTouch.AREA_ORB, orbF)
+                    orbDragging = false
+                    updateQuick()
                 }
             },
         ))
+
+        // 4b. The quick colours: the last ones used, next to the orb, one tap away.
+        repeat(Prefs.QUICK_COUNT) { i ->
+            val v = QuickColorView(this)
+            v.setOnClickListener { onQuickColor(i) }
+            val q = Floater(wm, v, dpi(40f), core = dpi(20f))
+            q.attach(orbF.cx, orbF.cy)
+            quickFloaters += q
+        }
 
         // 5. Whiteboard button, on its own (first time: bottom right).
         val white = MiniOrbView(this, R.drawable.ic_whiteboard, R.drawable.ic_scissors).apply {
@@ -441,6 +473,7 @@ class OverlayService : Service() {
         showPaperPicker(false)
         hidePalette()
         whiteFloater?.detach()
+        for (q in quickFloaters) q.detach()
         orbFloater?.detach()
         colorFloater?.detach()
         ringFloater?.detach()
@@ -600,6 +633,7 @@ class OverlayService : Service() {
         val screen = wm.screenSize()
         o.open(f.cx, f.cy, screen.x, screen.y)
         armIdle()
+        updateQuick()
     }
 
     private fun closeRing() {
@@ -610,6 +644,7 @@ class OverlayService : Service() {
         ringFloater?.setTouchable(false)
         panel?.clearArea(PanelTouch.AREA_RING)
         o.close()
+        updateQuick()
     }
 
     /** Whether a screen point is on the main orb (which toggles what is open itself). */
@@ -701,6 +736,7 @@ class OverlayService : Service() {
         val screen = wm.screenSize()
         val colors = Presets.COLORS.toList() + prefs.customColors
         view.open(f.cx, f.cy, screen.x, screen.y, colors, prefs.colorFor(inkTarget()))
+        updateQuick()
     }
 
     private fun closeColors() {
@@ -709,6 +745,7 @@ class OverlayService : Service() {
         colorFloater?.setTouchable(false)
         panel?.clearArea(PanelTouch.AREA_RING)
         view.close()
+        updateQuick()
     }
 
     /** Pressing the colour dot and sliding: the colours open, follow the finger, and letting go picks. */
@@ -1090,7 +1127,10 @@ class OverlayService : Service() {
 
     private fun showControls(visible: Boolean) {
         val v = if (visible) View.VISIBLE else View.INVISIBLE
-        for (f in listOf(orbFloater, ringFloater, colorFloater, trashFloater, whiteFloater)) f?.view?.visibility = v
+        // The rings are closed by now; their windows stay GONE until they open.
+        for (f in listOf(orbFloater, trashFloater, whiteFloater)) f?.view?.visibility = v
+        controlsHidden = !visible
+        updateQuick()
     }
 
     /**
@@ -1557,7 +1597,52 @@ class OverlayService : Service() {
             }
             o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE)
         }
+        updateQuick()
     }
+
+    // region Quick colours
+
+    private val quickFloaters = ArrayList<Floater>()
+    private var orbDragging = false
+    private var controlsHidden = false
+
+    /**
+     * The quick colours sit in a small arc beside the orb (on its right, or towards the middle
+     * when the orb is at the right edge), only while writing and with nothing else open.
+     */
+    private fun updateQuick() {
+        val f = orbFloater ?: return
+        val show = !paused && !orbDragging && !controlsHidden && !cropping &&
+            orbit?.isOpen != true && colorRing?.isOpen != true
+        val colors = prefs.quickColors(prefs.colorFor(inkTarget()))
+        val d = dp(QUICK_DISTANCE_DP)
+        val right = f.cx + d + dp(30f) < wm.screenSize().x
+        val angles = if (right) QUICK_ANGLES_RIGHT else QUICK_ANGLES_LEFT
+        quickFloaters.forEachIndexed { i, q ->
+            val v = q.view as QuickColorView
+            if (show && i < colors.size) {
+                v.color = colors[i]
+                val a = Math.toRadians(angles[i])
+                q.moveTo(f.cx + (kotlin.math.cos(a) * d).toInt(), f.cy + (kotlin.math.sin(a) * d).toInt())
+                v.visibility = View.VISIBLE
+                reserve(PanelTouch.AREA_QUICK + i, q)
+            } else {
+                v.visibility = View.GONE
+                panel?.clearArea(PanelTouch.AREA_QUICK + i)
+            }
+        }
+    }
+
+    private fun onQuickColor(i: Int) {
+        val color = (quickFloaters.getOrNull(i)?.view as? QuickColorView)?.color ?: return
+        lastActivity = SystemClock.uptimeMillis()
+        hidePalette()
+        toInkTool()
+        prefs.setColorFor(inkTarget(), color)
+        applyInk()
+    }
+
+    // endregion
 
     private fun toast(res: Int, long: Boolean = false) = toast(getString(res), long)
 
