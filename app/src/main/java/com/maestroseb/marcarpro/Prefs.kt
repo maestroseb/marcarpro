@@ -77,6 +77,11 @@ internal class Prefs(context: Context) {
         get() = Paper.entries.firstOrNull { it.name == sp.getString("paper", null) } ?: Paper.DOTS
         set(value) = sp.edit { putString("paper", value.name) }
 
+    /** The whiteboard's paper colour (white at first). */
+    var paperColor: PaperColor
+        get() = PaperColor.entries.firstOrNull { it.name == sp.getString("paper_color", null) } ?: PaperColor.WHITE
+        set(value) = sp.edit { putString("paper_color", value.name) }
+
     var sizeIndex: Int
         get() = sp.getInt("size", 1).coerceIn(0, Presets.SIZES_DP.lastIndex)
         set(value) = sp.edit { putInt("size", value) }

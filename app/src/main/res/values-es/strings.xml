@@ -64,6 +64,14 @@
         <item>Cuadros</item>
         <item>Líneas</item>
         <item>Doble pauta</item>
+        <item>Pentagrama</item>
+    </string-array>
+    <string-array name="paper_color_names">
+        <item>Papel blanco</item>
+        <item>Papel crema</item>
+        <item>Papel gris</item>
+        <item>Verde pizarra</item>
+        <item>Papel negro</item>
     </string-array>
     <string name="tool_shape">Formas</string>
     <string name="palette_color">Color</string>

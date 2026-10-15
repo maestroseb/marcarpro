@@ -65,6 +65,14 @@
         <item>Squares</item>
         <item>Lines</item>
         <item>Double ruling</item>
+        <item>Staff</item>
+    </string-array>
+    <string-array name="paper_color_names">
+        <item>White paper</item>
+        <item>Cream paper</item>
+        <item>Grey paper</item>
+        <item>Chalkboard green</item>
+        <item>Black paper</item>
     </string-array>
     <string name="tool_shape">Shapes</string>
     <string name="palette_color">Colour</string>

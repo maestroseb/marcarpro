@@ -20,6 +20,7 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.withMatrix
 import androidx.input.motionprediction.MotionEventPredictor
 import kotlin.math.abs
@@ -154,8 +155,33 @@ class AnnotationView(context: Context) : View(context) {
             field = value
             invalidate()
         }
+    /** The whiteboard's paper colour; on a dark one black ink shows white (see [shown]). */
+    var paperColor = PaperColor.WHITE
+        set(value) {
+            if (field == value) return
+            field = value
+            linePaint.color = if (value.dark) 0x2EFFFFFF else 0x241F2329
+            staffPaint.color = if (value.dark) 0x5CFFFFFF else 0x4D1F2329
+            gridPaint.color = if (value.dark) 0x40FFFFFF else 0x2E1F2329
+            redrawLayer()
+        }
+
+    /** How [color] shows on this board: black ink turns white on a dark paper (it stays black). */
+    private fun shown(color: Int): Int =
+        if (board.paper && paperColor.dark && ColorUtils.calculateLuminance(color) < DARK_INK) {
+            Color.argb(Color.alpha(color), 255, 255, 255)
+        } else {
+            color
+        }
+
     private val linePaint = Paint().apply {
         color = 0x241F2329
+        strokeWidth = dp(1.2f)
+    }
+
+    // Music staves: a little stronger than squares or lines, as on staff paper.
+    private val staffPaint = Paint().apply {
+        color = 0x4D1F2329
         strokeWidth = dp(1.2f)
     }
     private var gridLines = FloatArray(0)
@@ -544,11 +570,11 @@ class AnnotationView(context: Context) : View(context) {
         if (s.tool == InkTool.IMAGE) {
             drawPicture(canvas, s, opacity)
         } else if (s.tool == InkTool.PEN) {
-            inkPaint.color = s.color
+            inkPaint.color = shown(s.color)
             inkPaint.alpha = (Color.alpha(s.color) * opacity).toInt()
             canvas.drawPath(s.path, inkPaint)
         } else {
-            highlighterPaint.color = s.color
+            highlighterPaint.color = shown(s.color)
             highlighterPaint.alpha = (HIGHLIGHTER_ALPHA * opacity).toInt()
             highlighterPaint.strokeWidth = s.size * Stroke.HIGHLIGHTER_SCALE
             canvas.drawPath(s.path, highlighterPaint)
@@ -624,7 +650,7 @@ class AnnotationView(context: Context) : View(context) {
      * lines: one cheap pass, not a full-screen texture.
      */
     private fun drawPaper(canvas: Canvas) {
-        canvas.drawColor(Color.WHITE)
+        canvas.drawColor(paperColor.background)
         if (paperStyle == Paper.BLANK) return
         val k = zoom
         val step = dp(GRID_DP) * k
@@ -645,28 +671,31 @@ class AnnotationView(context: Context) : View(context) {
             canvas.drawPoints(gridPoints, 0, n, gridPaint)
             return
         }
-        // Squares or ruled lines: one batch of segments, the vertical ones only for squares. Double
-        // ruling draws pairs of lines (the letters' body between them) a little further apart.
-        val double = paperStyle == Paper.DOUBLE
-        val period = if (double) step * DOUBLE_PERIOD else step
+        // Squares or ruled lines: one batch of segments, the vertical ones only for squares. Each
+        // period holds one line, a pair (double ruling: the letters' body between them, a little
+        // further apart) or the five lines of a music staff (with room between staves).
+        val (period, offsets) = when (paperStyle) {
+            Paper.DOUBLE -> step * DOUBLE_PERIOD to DOUBLE_LINES
+            Paper.STAFF -> step * STAFF_PERIOD to STAFF_LINES
+            else -> step to SINGLE_LINE
+        }
         val ry0 = origin[1] - kotlin.math.floor(origin[1] / period) * period - period
         val ruled = (height / period).toInt() + 2
-        val need = (ruled * 2 + cols) * 4
+        val need = (ruled * offsets.size + cols) * 4
         if (gridLines.size < need) gridLines = FloatArray(need)
         var n = 0
         for (r in 0 until ruled) {
             val y = ry0 + r * period
-            gridLines[n++] = 0f; gridLines[n++] = y; gridLines[n++] = width.toFloat(); gridLines[n++] = y
-            if (double) {
-                val y2 = y + step * DOUBLE_GAP
-                gridLines[n++] = 0f; gridLines[n++] = y2; gridLines[n++] = width.toFloat(); gridLines[n++] = y2
+            for (o in offsets) {
+                val yy = y + o * step
+                gridLines[n++] = 0f; gridLines[n++] = yy; gridLines[n++] = width.toFloat(); gridLines[n++] = yy
             }
         }
         if (paperStyle == Paper.GRID) for (c in 0 until cols) {
             val x = x0 + c * step
             gridLines[n++] = x; gridLines[n++] = 0f; gridLines[n++] = x; gridLines[n++] = height.toFloat()
         }
-        canvas.drawLines(gridLines, 0, n, linePaint)
+        canvas.drawLines(gridLines, 0, n, if (paperStyle == Paper.STAFF) staffPaint else linePaint)
     }
 
     private var gridPoints = FloatArray(0)
@@ -694,7 +723,7 @@ class AnnotationView(context: Context) : View(context) {
                 px = last.x + (px - last.x) * limit / d
                 py = last.y + (py - last.y) * limit / d
             }
-            predictPaint.color = live.stroke.color
+            predictPaint.color = shown(live.stroke.color)
             predictPaint.strokeWidth = live.stroke.size * 0.9f
             canvas.drawLine(last.x, last.y, px, py, predictPaint)
         } finally {
@@ -1828,7 +1857,14 @@ class AnnotationView(context: Context) : View(context) {
 
         /** Double ruling: a pair of lines every 1.5 grid steps, half a step apart. */
         const val DOUBLE_PERIOD = 1.5f
-        const val DOUBLE_GAP = 0.5f
+        val SINGLE_LINE = floatArrayOf(0f)
+        val DOUBLE_LINES = floatArrayOf(0f, 0.5f) // the second line half a square below
+        // A staff: five lines 0.45 squares apart (16 dp: room for handwritten notes), every 3.5 squares.
+        const val STAFF_PERIOD = 3.5f
+        val STAFF_LINES = floatArrayOf(0f, 0.45f, 0.9f, 1.35f, 1.8f)
+
+        /** Below this luminance ink counts as black (and shows white on a dark paper). */
+        const val DARK_INK = 0.05
 
         /** Space above a cutout on the whiteboard, and between stacked cutouts. */
         const val PICTURE_MARGIN_DP = 24f

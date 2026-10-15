@@ -505,21 +505,30 @@ internal class Swatch(
 
 /**
  * The whiteboard's background, at the bottom left while it is open: one button showing the paper
- * in use; a tap opens the list upwards (plain, dots, squares, lines, double ruling), each a small
- * sample of the paper with its name, and picking one (or a tap anywhere else) closes it.
+ * in use, in its colour; a tap opens the card upwards: a row of paper colours on top and the six
+ * papers below (plain, dots, squares, lines, double ruling, music staff) in two columns, each a
+ * small sample with its name. A colour shows at once and the card stays open; a paper (or a tap
+ * anywhere else) closes it.
  */
 @SuppressLint("ViewConstructor")
-internal class PaperPickerView(context: Context, private val onPick: (Paper) -> Unit) : View(context) {
+internal class PaperPickerView(
+    context: Context,
+    private val onPick: (Paper) -> Unit,
+    private val onColor: (PaperColor) -> Unit,
+) : View(context) {
     private val names = context.resources.getStringArray(R.array.paper_names)
+    private val colorNames = context.resources.getStringArray(R.array.paper_color_names)
     private val cellW = dp(CELL_W_DP)
     private val cellH = dp(CELL_H_DP)
+    private val colorsH = dp(COLORS_H_DP)
     private val pad = dp(PAD_DP)
     private val card = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(8f), 0f, dp(3f), OrbStyle.SHADOW) }
     private val chosenFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ColorUtils.setAlphaComponent(OrbStyle.TEAL, 0x2E) }
-    private val sheet = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val sheet = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheetEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.5f); color = 0x40000000 }
     private val chosenEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f); color = OrbStyle.TEAL }
-    private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x991F2329.toInt(); strokeWidth = dp(1.3f); strokeCap = Paint.Cap.ROUND }
+    private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1.3f); strokeCap = Paint.Cap.ROUND }
+    private val swatchEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x40000000 }
     private val chevron = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2.5f)
@@ -542,7 +551,14 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
             invalidate()
         }
 
-    /** True while the list is open. */
+    var paperColor = PaperColor.WHITE
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
+    /** True while the card is open. */
     var expanded = false
         private set
 
@@ -551,7 +567,7 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
         contentDescription = context.getString(R.string.paper_label)
     }
 
-    /** Closes the list (a tap elsewhere, the whiteboard closing). */
+    /** Closes the card (a tap elsewhere, the whiteboard closing). */
     fun collapse() {
         if (!expanded) return
         expanded = false
@@ -559,16 +575,21 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
         invalidate()
     }
 
+    private val rows get() = (Paper.entries.size + COLUMNS - 1) / COLUMNS
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val rows = if (expanded) Paper.entries.size else 1
-        setMeasuredDimension((cellW + 2 * pad).toInt(), (cellH * rows + 2 * pad).toInt())
+        if (expanded) {
+            setMeasuredDimension((cellW * COLUMNS + 2 * pad).toInt(), (colorsH + cellH * rows + 2 * pad).toInt())
+        } else {
+            setMeasuredDimension((cellW + 2 * pad).toInt(), (cellH + 2 * pad).toInt())
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
         r.set(pad, pad, width - pad, height - pad)
         canvas.drawRoundRect(r, dp(16f), dp(16f), card)
         if (!expanded) {
-            drawCell(canvas, paper, pad, chosen = false)
+            drawCell(canvas, paper, pad, pad, chosen = false)
             // "Opens upwards".
             val cx = width - pad - dp(12f)
             val cy = pad + dp(12f)
@@ -577,20 +598,36 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
             canvas.drawLine(cx, cy - a / 2, cx + a, cy + a / 2, chevron)
             return
         }
-        for (p in Paper.entries) drawCell(canvas, p, pad + p.ordinal * cellH, chosen = p == paper)
+        // The paper colours, in a row on top.
+        val slot = (width - 2 * pad - dp(2 * SWATCH_INSET_DP)) / PaperColor.entries.size
+        val cy = pad + colorsH / 2
+        for (c in PaperColor.entries) {
+            val cx = pad + dp(SWATCH_INSET_DP) + slot * (c.ordinal + 0.5f)
+            sheet.color = c.background
+            canvas.drawCircle(cx, cy, dp(SWATCH_DP), sheet)
+            canvas.drawCircle(cx, cy, dp(SWATCH_DP), swatchEdge)
+            if (c == paperColor) canvas.drawCircle(cx, cy, dp(SWATCH_DP + 3.5f), chosenEdge)
+        }
+        for (p in Paper.entries) {
+            val left = pad + (p.ordinal % COLUMNS) * cellW
+            val top = pad + colorsH + (p.ordinal / COLUMNS) * cellH
+            drawCell(canvas, p, left, top, chosen = p == paper)
+        }
     }
 
-    private fun drawCell(canvas: Canvas, p: Paper, top: Float, chosen: Boolean) {
+    private fun drawCell(canvas: Canvas, p: Paper, left: Float, top: Float, chosen: Boolean) {
         if (chosen) {
-            r.set(pad + dp(4f), top + dp(4f), pad + cellW - dp(4f), top + cellH - dp(4f))
+            r.set(left + dp(4f), top + dp(4f), left + cellW - dp(4f), top + cellH - dp(4f))
             canvas.drawRoundRect(r, dp(12f), dp(12f), chosenFill)
         }
-        // A little sheet of that paper.
+        // A little sheet of that paper, in the paper's colour.
         val s = dp(26f)
-        val cx = pad + cellW / 2
+        val cx = left + cellW / 2
         val sheetTop = top + dp(9f)
         r.set(cx - s / 2, sheetTop, cx + s / 2, sheetTop + s)
+        sheet.color = paperColor.background
         canvas.drawRoundRect(r, dp(4f), dp(4f), sheet)
+        mark.color = if (paperColor.dark) 0xB3FFFFFF.toInt() else 0x991F2329.toInt()
         val step = s / 4
         when (p) {
             Paper.BLANK -> Unit
@@ -602,6 +639,10 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
             Paper.LINES -> for (i in 1..3) canvas.drawLine(r.left + dp(3f), r.top + i * step, r.right - dp(3f), r.top + i * step, mark)
             Paper.DOUBLE -> for (y in floatArrayOf(0.22f, 0.4f, 0.64f, 0.82f)) {
                 canvas.drawLine(r.left + dp(3f), r.top + y * s, r.right - dp(3f), r.top + y * s, mark)
+            }
+            Paper.STAFF -> for (i in 0 until 5) {
+                val y = r.top + s * (0.3f + i * 0.1f) // five lines close together: a staff
+                canvas.drawLine(r.left + dp(3f), y, r.right - dp(3f), y, mark)
             }
         }
         canvas.drawRoundRect(r, dp(4f), dp(4f), if (chosen) chosenEdge else sheetEdge)
@@ -625,7 +666,20 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
             invalidate()
             return true
         }
-        Paper.entries.getOrNull(((e.y - pad) / cellH).toInt())?.let {
+        val y = e.y - pad
+        if (y < colorsH) {
+            // A paper colour: it shows at once, and the card stays open to pick the paper too.
+            val slot = (width - 2 * pad - dp(2 * SWATCH_INSET_DP)) / PaperColor.entries.size
+            PaperColor.entries.getOrNull(((e.x - pad - dp(SWATCH_INSET_DP)) / slot).coerceAtLeast(0f).toInt())?.let {
+                paperColor = it
+                contentDescription = colorNames[it.ordinal]
+                onColor(it)
+            }
+            return true
+        }
+        val col = ((e.x - pad) / cellW).toInt().coerceIn(0, COLUMNS - 1)
+        val row = ((y - colorsH) / cellH).toInt()
+        Paper.entries.getOrNull(row * COLUMNS + col)?.let {
             paper = it
             onPick(it)
         }
@@ -636,7 +690,11 @@ internal class PaperPickerView(context: Context, private val onPick: (Paper) -> 
     private companion object {
         const val CELL_W_DP = 76f
         const val CELL_H_DP = 64f
+        const val COLORS_H_DP = 44f
+        const val SWATCH_DP = 9f
+        const val SWATCH_INSET_DP = 12f // room for the chosen ring at the ends
         const val PAD_DP = 10f
+        const val COLUMNS = 2
     }
 }
 

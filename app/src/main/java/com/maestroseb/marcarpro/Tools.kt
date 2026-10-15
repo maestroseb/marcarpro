@@ -3,8 +3,20 @@ package com.maestroseb.marcarpro
 /** What the pen does. Fingers and fists follow their own rules (see [AnnotationView]). */
 enum class Tool { PEN, HIGHLIGHTER, ERASER, MAGIC, SHAPE }
 
-/** The whiteboard's background; DOUBLE is the school "doble pauta" (pairs of lines). */
-enum class Paper { BLANK, DOTS, GRID, LINES, DOUBLE }
+/** The whiteboard's background; DOUBLE is the school "doble pauta" (pairs of lines), STAFF music staves. */
+enum class Paper { BLANK, DOTS, GRID, LINES, DOUBLE, STAFF }
+
+/**
+ * The whiteboard's paper colour. On a [dark] one, black ink is shown white (it stays black, and
+ * shows black again on a light paper) and the pattern is drawn light.
+ */
+enum class PaperColor(val background: Int, val dark: Boolean) {
+    WHITE(0xFFFFFFFF.toInt(), false),
+    CREAM(0xFFFBF6E9.toInt(), false),
+    GREY(0xFFEEF0F2.toInt(), false),
+    CHALK(0xFF2F4F3E.toInt(), true),
+    BLACK(0xFF1F2329.toInt(), true),
+}
 
 /** What a finger does on empty space: reach the apps underneath, or write (several pupils). */
 enum class FingerMode { APPS, WRITE }

@@ -414,15 +414,20 @@ class OverlayService : Service() {
         announceUpdate()
 
         // 7. The whiteboard's background picker, shown with the whiteboard.
-        paperPicker = PaperPickerView(this) { p ->
+        paperPicker = PaperPickerView(this, onPick = { p ->
             prefs.paper = p
             canvas?.paperStyle = p
-        }.apply {
+        }, onColor = { c ->
+            prefs.paperColor = c
+            canvas?.paperColor = c
+        }).apply {
             paper = prefs.paper
+            paperColor = prefs.paperColor
             // Opening the list makes the window taller (upwards): the PC must not get those touches either.
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (paperShown) reservePaper() }
         }
         ink.paperStyle = prefs.paper
+        ink.paperColor = prefs.paperColor
 
         // It opens with the cursor ("using the screen"); the orb brings the pen, on an ink tool.
         val start = prefs.tool.takeIf { it != Tool.ERASER } ?: Tool.PEN
