@@ -294,6 +294,7 @@ class OverlayService : Service() {
             RingItem(Tool.MAGIC, R.drawable.ic_magic, getString(R.string.tool_magic), tint = 0xFFC2255C.toInt()),
             RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
             RingItem(null, R.drawable.ic_group, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
+            RingItem(null, R.drawable.ic_lasso, getString(R.string.tool_lasso), RingToggle.LASSO, tint = 0xFF1C7ED6.toInt()),
         )
         // First time: against the right edge, a little above the middle (clear of the panel's own side tab).
         val orbAt = prefs.position("orb", Point(screen.x - dpi(64f), (screen.y * 0.4f).toInt()))
@@ -685,6 +686,15 @@ class OverlayService : Service() {
             RingToggle.PUPILS -> {
                 hidePalette()
                 togglePupils()
+                return
+            }
+            RingToggle.LASSO -> {
+                // One lasso, with the finger or the pen, on any screen; then back to how it was.
+                hidePalette()
+                closeRing()
+                if (paused) togglePause()
+                ink.lassoNext = true
+                toast(R.string.lasso_hint)
                 return
             }
             null -> Unit

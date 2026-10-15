@@ -96,6 +96,15 @@ class AnnotationView(context: Context) : View(context) {
      */
     var onPasteRequest: ((x: Float, y: Float, copiedAt: Long) -> Unit)? = null
 
+    /**
+     * The ring's "Lasso": the next stroke, pen or finger, draws a lasso (instead of ink, or of
+     * moving the whiteboard) and selects what it surrounds; then everything is as before.
+     */
+    var lassoNext = false
+
+    // The lasso in progress came from [lassoNext] (not from holding a finger still).
+    private var lassoOnce = false
+
     /** Tells the host when this window gets (or loses) the keyboard focus. */
     var onFocus: ((Boolean) -> Unit)? = null
 
@@ -976,6 +985,10 @@ class AnnotationView(context: Context) : View(context) {
             onMenuTap(sx, sy)
             return
         }
+        if (lassoNext && gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && contact != Contact.ERASER) {
+            beginLasso(e, i, x, y)
+            return
+        }
         // On the whiteboard a second finger on empty space zooms (and pans) the paper.
         if (board.paper && contact == Contact.FINGER && pointerId2 == NO_POINTER &&
             (gesture == Gesture.LASSO || gesture == Gesture.PAN) && !lassoArmed
@@ -1100,6 +1113,12 @@ class AnnotationView(context: Context) : View(context) {
             Gesture.LASSO -> {
                 removeCallbacks(armHold)
                 when {
+                    lassoOnce -> {
+                        lassoOnce = false
+                        lassoNext = false
+                        // A tap is no lasso: it just leaves the lasso.
+                        if (travelled > touchSlop) selectWithLasso() else lasso.rewind()
+                    }
                     lassoArmed && hypot(lastX - downX, lastY - downY) < touchSlop -> {
                         lasso.rewind()
                         val ask = onPasteRequest
@@ -1200,6 +1219,7 @@ class AnnotationView(context: Context) : View(context) {
             Gesture.LASSO -> {
                 removeCallbacks(armHold)
                 lassoArmed = false
+                lassoOnce = false // the ring's lasso stays ready for another try
                 lasso.rewind()
             }
             Gesture.MOVE, Gesture.SCALE, Gesture.ROTATE, Gesture.PINCH -> commitTransform()
@@ -1635,6 +1655,23 @@ class AnnotationView(context: Context) : View(context) {
             }
             DELETE_ROW -> removeStrokes { it in selection }
         }
+        invalidate()
+    }
+
+    /** The ring's lasso: this pointer (pen or finger) draws it straight away. */
+    private fun beginLasso(e: MotionEvent, i: Int, x: Float, y: Float) {
+        clearSelection()
+        pointerId = e.getPointerId(i)
+        gesture = Gesture.LASSO
+        lassoArmed = true
+        lassoOnce = true
+        lasso.rewind()
+        lasso.moveTo(x, y)
+        lastX = x
+        lastY = y
+        downX = x
+        downY = y
+        travelled = 0f
         invalidate()
     }
 
