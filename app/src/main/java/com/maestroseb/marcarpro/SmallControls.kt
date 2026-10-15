@@ -687,7 +687,11 @@ internal class HintView(context: Context) : TextView(context) {
     }
 }
 
-/** One of the quick colours next to the orb: a disc of the colour with a white rim; a ring when in use. */
+/**
+ * One of the quick colours next to the orb. The one in use is full size with a white rim; the
+ * others are smaller, in their true colour, with only a fine see-through rim, so the one in use stands out
+ * on any background (the user's choice "D").
+ */
 internal class QuickColorView(context: Context) : View(context) {
     var color = Color.BLACK
         set(value) {
@@ -705,13 +709,7 @@ internal class QuickColorView(context: Context) : View(context) {
             invalidate()
         }
 
-    // The colour in use: a thin, see-through halo of its own colour, a little apart from the disc.
-    private val chosen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = dp(1.3f)
-    }
-
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2.5f)
@@ -723,6 +721,13 @@ internal class QuickColorView(context: Context) : View(context) {
         color = 0x33000000
     }
 
+    // The softer ones: a fine see-through white rim, so a dark colour still shows on a dark screen.
+    private val hairline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = 0x66FFFFFF
+    }
+
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null) // the shadow layer
         visibility = GONE
@@ -731,16 +736,22 @@ internal class QuickColorView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val r = dp(10f) * if (isPressed) 1.2f else 1f
-        fill.color = color
-        canvas.drawCircle(cx, cy, r, fill)
-        canvas.drawCircle(cx, cy, r - dp(1.25f), rim)
+        val press = if (isPressed) 1.2f else 1f
         val light = androidx.core.graphics.ColorUtils.calculateLuminance(color) > 0.7
-        if (light) canvas.drawCircle(cx, cy, r, edge)
+        fill.color = color
         if (active) {
-            chosen.color = if (light) OrbStyle.INK else color
-            chosen.alpha = HALO_ALPHA
-            canvas.drawCircle(cx, cy, r + dp(4f), chosen)
+            val r = dp(ACTIVE_DP) * press
+            fill.setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW)
+            canvas.drawCircle(cx, cy, r, fill)
+            canvas.drawCircle(cx, cy, r - dp(1.25f), rim)
+            if (light) canvas.drawCircle(cx, cy, r, edge)
+        } else {
+            val r = dp(IDLE_DP) * press
+            // Smaller, but in their true colour: see-through, black looked grey (another colour).
+            fill.clearShadowLayer()
+            canvas.drawCircle(cx, cy, r, fill)
+            // A white or yellow dot would vanish on the whiteboard without a dark hairline.
+            canvas.drawCircle(cx, cy, r - dp(0.5f), if (light) edge else hairline)
         }
     }
 
@@ -750,6 +761,7 @@ internal class QuickColorView(context: Context) : View(context) {
     }
 
     private companion object {
-        const val HALO_ALPHA = 100 // about 40 %
+        const val ACTIVE_DP = 11f
+        const val IDLE_DP = 8f
     }
 }
