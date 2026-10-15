@@ -687,7 +687,7 @@ internal class HintView(context: Context) : TextView(context) {
     }
 }
 
-/** One of the quick colours next to the orb: a disc of the colour with a white rim. */
+/** One of the quick colours next to the orb: a disc of the colour with a white rim; a ring when in use. */
 internal class QuickColorView(context: Context) : View(context) {
     var color = Color.BLACK
         set(value) {
@@ -696,6 +696,19 @@ internal class QuickColorView(context: Context) : View(context) {
             contentDescription = context.getString(R.string.quick_color)
             invalidate()
         }
+
+    /** This is the colour in use (a second tap changes the colour kept here). */
+    var active = false
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
+    private val chosen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2.5f)
+    }
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
     private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -721,7 +734,12 @@ internal class QuickColorView(context: Context) : View(context) {
         fill.color = color
         canvas.drawCircle(cx, cy, r, fill)
         canvas.drawCircle(cx, cy, r - dp(1.25f), rim)
-        if (androidx.core.graphics.ColorUtils.calculateLuminance(color) > 0.7) canvas.drawCircle(cx, cy, r, edge)
+        val light = androidx.core.graphics.ColorUtils.calculateLuminance(color) > 0.7
+        if (light) canvas.drawCircle(cx, cy, r, edge)
+        if (active) {
+            chosen.color = if (light) OrbStyle.INK else color
+            canvas.drawCircle(cx, cy, r + dp(4.5f), chosen)
+        }
     }
 
     override fun setPressed(pressed: Boolean) {

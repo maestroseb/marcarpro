@@ -752,6 +752,8 @@ class OverlayService : Service() {
     private fun closeColors() {
         val view = colorRing ?: return
         if (!view.isOpen) return
+        // Closed without a colour: the quick colour being changed stays as it was.
+        if (!quickToPalette) editingQuick = -1
         colorFloater?.setTouchable(false)
         panel?.clearArea(PanelTouch.AREA_RING)
         view.close()
@@ -776,12 +778,16 @@ class OverlayService : Service() {
             is ColorRingView.Item.Ink -> {
                 toInkTool()
                 prefs.setColorFor(inkTarget(), item.color)
+                keepQuick(item.color)
                 applyInk()
                 closeColors()
             }
             ColorRingView.Item.Add -> {
                 val f = orbFloater ?: return
+                // A colour of one's own for a quick colour: the picker carries on with it.
+                quickToPalette = true
                 closeColors()
+                quickToPalette = false
                 toInkTool()
                 val tool = inkTarget()
                 palette?.startPicking(prefs.colorFor(tool))
@@ -833,6 +839,7 @@ class OverlayService : Service() {
 
     private fun hidePalette() {
         if (!paletteShown) return
+        editingQuick = -1
         palette?.let {
             runCatching { wm.removeView(it) }
             it.reset()
@@ -855,6 +862,7 @@ class OverlayService : Service() {
             is PaletteView.Pick.Color -> {
                 prefs.setColorFor(if (paletteTool == Tool.ERASER) inkTarget() else paletteTool, pick.color)
                 if (pick.save) prefs.addCustomColor(pick.color)
+                keepQuick(pick.color, done = false)
             }
             is PaletteView.Pick.Size -> prefs.sizeIndex = pick.index
             is PaletteView.Pick.Eraser -> prefs.eraserIndex = pick.index
@@ -1642,7 +1650,9 @@ class OverlayService : Service() {
         val f = orbFloater ?: return
         val show = !paused && !orbDragging && !controlsHidden && !cropping &&
             orbit?.isOpen != true && colorRing?.isOpen != true
-        val colors = prefs.quickColors(prefs.colorFor(inkTarget()))
+        val colors = prefs.quickColors
+        val current = prefs.colorFor(inkTarget())
+        val active = colors.indexOf(current)
         val d = dp(QUICK_DISTANCE_DP)
         val right = f.cx + d + dp(30f) < wm.screenSize().x
         val angles = if (right) QUICK_ANGLES_RIGHT else QUICK_ANGLES_LEFT
@@ -1650,6 +1660,7 @@ class OverlayService : Service() {
             val v = q.view as QuickColorView
             if (show && i < colors.size) {
                 v.color = colors[i]
+                v.active = i == active
                 val a = Math.toRadians(angles[i])
                 q.moveTo(f.cx + (kotlin.math.cos(a) * d).toInt(), f.cy + (kotlin.math.sin(a) * d).toInt())
                 v.visibility = View.VISIBLE
@@ -1661,13 +1672,37 @@ class OverlayService : Service() {
         }
     }
 
+    // The quick colour being changed (its second tap opened the colours), or -1.
+    private var editingQuick = -1
+    private var quickToPalette = false
+
+    /**
+     * A tap takes that colour (it stays where it is: the three are fixed). A second tap on the
+     * colour in use opens the colours around the orb to keep a different one there.
+     */
     private fun onQuickColor(i: Int) {
-        val color = (quickFloaters.getOrNull(i)?.view as? QuickColorView)?.color ?: return
+        val color = prefs.quickColors.getOrNull(i) ?: return
         lastActivity = SystemClock.uptimeMillis()
         hidePalette()
         toInkTool()
+        if (prefs.colorFor(inkTarget()) == color) {
+            editingQuick = i
+            openColors()
+            toast(R.string.quick_edit_hint)
+            return
+        }
         prefs.setColorFor(inkTarget(), color)
         applyInk()
+    }
+
+    /**
+     * A colour chosen while changing a quick colour is kept there too. From the colour card the
+     * teacher may try several: the last one stays, and the change ends when the card closes.
+     */
+    private fun keepQuick(color: Int, done: Boolean = true) {
+        if (editingQuick < 0) return
+        prefs.setQuickColor(editingQuick, color)
+        if (done) editingQuick = -1
     }
 
     // endregion

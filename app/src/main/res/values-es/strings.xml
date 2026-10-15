@@ -120,4 +120,5 @@
     <string name="setup_overlay_why">Para escribir encima de todo. Ya está activado.</string>
     <string name="setup_notifications">Notificaciones</string>
     <string name="setup_notifications_why">Solo el aviso fijo «Marcar Pro activo», con el botón Detener.</string>
+    <string name="quick_edit_hint">Elige el color que quieres guardar en esa bolita</string>
 </resources>

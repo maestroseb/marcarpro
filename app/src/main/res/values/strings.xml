@@ -121,4 +121,5 @@
     <string name="setup_overlay_why">To write on top of everything. Already on.</string>
     <string name="setup_notifications">Notifications</string>
     <string name="setup_notifications_why">Only the ongoing “Marcar Pro is on” notice, with its Stop button.</string>
+    <string name="quick_edit_hint">Choose the colour to keep in that dot</string>
 </resources>

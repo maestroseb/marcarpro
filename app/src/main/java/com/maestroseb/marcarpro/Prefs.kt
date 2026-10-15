@@ -36,23 +36,22 @@ internal class Prefs(context: Context) {
         if (tool == Tool.HIGHLIGHTER) sp.getInt("highlighter_color", Presets.HIGHLIGHTER_COLOR) else inkColor
 
     fun setColorFor(tool: Tool, color: Int) {
-        val before = colorFor(tool)
-        if (before != color) rememberColor(before)
         if (tool == Tool.HIGHLIGHTER) sp.edit { putInt("highlighter_color", color) } else inkColor = color
     }
 
-    /** Colours left behind, newest first (for the quick colours next to the orb). */
-    private val recentColors: List<Int>
-        get() = sp.getString("recent_colors", null)?.split(',')?.mapNotNull { it.toIntOrNull() }.orEmpty()
+    /** The three fixed colours next to the orb (blue, red and black until the teacher changes one). */
+    val quickColors: List<Int>
+        get() {
+            val saved = sp.getString("quick_colors", null)?.split(',')?.mapNotNull { it.toIntOrNull() }.orEmpty()
+            return if (saved.size == QUICK_COUNT) saved else DEFAULT_QUICK
+        }
 
-    private fun rememberColor(color: Int) {
-        val list = (listOf(color) + recentColors.filter { it != color }).take(MAX_RECENT)
-        sp.edit { putString("recent_colors", list.joinToString(",")) }
+    fun setQuickColor(slot: Int, color: Int) {
+        val list = quickColors.toMutableList()
+        if (slot !in list.indices) return
+        list[slot] = color
+        sp.edit { putString("quick_colors", list.joinToString(",")) }
     }
-
-    /** The three colours to offer next to the orb: the last ones used other than [current]. */
-    fun quickColors(current: Int): List<Int> =
-        (recentColors + DEFAULT_QUICK).filter { it != current }.distinct().take(QUICK_COUNT)
 
     /** The ring's tools in the teacher's order ([RingItem.key]s); empty until reordered. */
     var ringOrder: List<String>
@@ -105,10 +104,8 @@ internal class Prefs(context: Context) {
     }
 
     companion object {
-        private const val MAX_RECENT = 6
         const val QUICK_COUNT = 3
-        /** Until three others have been used: black, red, blue and green. */
-        private val DEFAULT_QUICK = listOf(Presets.COLORS[0], Presets.COLORS[2], Presets.COLORS[6], Presets.COLORS[5])
+        private val DEFAULT_QUICK = listOf(Presets.COLORS[6], Presets.COLORS[2], Presets.COLORS[0]) // blue, red, black
 
         const val DEFAULT_COLOR = 0xFFC0392B.toInt() // red: stands out on most lesson content
         const val OLD_AMBER = 4 // the old amber became the new yellow
