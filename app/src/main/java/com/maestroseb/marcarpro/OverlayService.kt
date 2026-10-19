@@ -108,6 +108,9 @@ class OverlayService : Service() {
     private var orbit: OrbitLayout? = null
     private var ringFloater: Floater? = null
     private var orbButton: OrbButton? = null
+
+    // The ring's tools, for the orb's colour (each tool's tint).
+    private var ringItems: List<RingItem> = emptyList()
     private var orbFloater: Floater? = null
     private var colorRing: ColorRingView? = null
     private var colorFloater: Floater? = null
@@ -293,9 +296,10 @@ class OverlayService : Service() {
             RingItem(null, R.drawable.ic_hide, getString(R.string.tool_hide), RingToggle.HIDE, tint = 0xFF5C677D.toInt()),
             RingItem(Tool.MAGIC, R.drawable.ic_magic, getString(R.string.tool_magic), tint = 0xFFC2255C.toInt()),
             RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
-            RingItem(null, R.drawable.ic_group, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
+            RingItem(null, R.drawable.ic_pupils, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
             RingItem(null, R.drawable.ic_lasso, getString(R.string.tool_lasso), RingToggle.LASSO, tint = 0xFF1C7ED6.toInt()),
         )
+        ringItems = ring
         // First time: against the right edge, a little above the middle (clear of the panel's own side tab).
         val orbAt = prefs.position("orb", Point(screen.x - dpi(64f), (screen.y * 0.4f).toInt()))
         val orbitView = OrbitLayout(this, ring, prefs.ringOrder, prefs.ringHidden, ::onRingItem)
@@ -1619,6 +1623,15 @@ class OverlayService : Service() {
         refresh()
     }
 
+    /**
+     * The orb takes the active tool's colour from the ring, a little deeper so its white icon
+     * reads well (the highlighter's orange needs more).
+     */
+    private fun orbTint(tool: Tool): Int {
+        val tint = ringItems.firstOrNull { it.tool == tool }?.tint ?: return OrbStyle.TEAL
+        return androidx.core.graphics.ColorUtils.blendARGB(tint, android.graphics.Color.BLACK, if (tool == Tool.HIGHLIGHTER) 0.18f else 0.05f)
+    }
+
     /** Brings every floating control in line with the current state. */
     private fun refresh() {
         val ink = canvas ?: return
@@ -1635,6 +1648,7 @@ class OverlayService : Service() {
                 inkColor = if (ink.tool == Tool.MAGIC) Presets.MAGIC_COLOR else prefs.colorFor(ink.tool)
                 sizeLevel = prefs.sizeIndex
                 using = paused
+                tint = orbTint(ink.tool)
             }
             o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE)
         }

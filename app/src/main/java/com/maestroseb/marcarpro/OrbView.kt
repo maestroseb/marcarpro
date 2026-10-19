@@ -482,7 +482,8 @@ internal class OrbitLayout(
 }
 
 /**
- * The teal orb: shows the active tool, and a dot with the ink colour and thickness. A small
+ * The orb: in the active tool's colour (as in the ring), with the tool's icon, and a dot with the
+ * ink colour and thickness. A small
  * cursor badge sits on its rim at two o'clock: tapping it switches between writing and using
  * the screen underneath.
  */
@@ -503,6 +504,16 @@ internal class OrbButton(context: Context) : View(context) {
     private var iconRes = 0
     var inkColor = Color.BLACK
         set(value) { if (field != value) { field = value; invalidate() } }
+
+    /** The active tool's colour (its ring item's tint): the disc and its halo take it. */
+    var tint = OrbStyle.TEAL
+        set(value) {
+            if (field == value) return
+            field = value
+            fill.color = value
+            halo.color = ColorUtils.setAlphaComponent(value, Color.alpha(OrbStyle.HALO))
+            invalidate()
+        }
     var sizeLevel = 1
         set(value) { if (field != value) { field = value; invalidate() } }
 
@@ -558,7 +569,7 @@ internal class OrbButton(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, r + dp(7f), halo)
         canvas.drawCircle(cx, cy, r, fill)
         icon?.let {
-            val s = dp(30f)
+            val s = dp(ORB_ICON_DP)
             it.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
             it.draw(canvas)
         }
@@ -595,6 +606,9 @@ internal class OrbButton(context: Context) : View(context) {
 
         /** Colour dot radius (dp) for each ink thickness. */
         val DOT_RADII = floatArrayOf(4.5f, 6f, 7.5f)
+
+        /** The tool's icon on the 68 dp disc: large enough to read from the back of the class. */
+        const val ORB_ICON_DP = 38f
     }
 }
 
@@ -670,7 +684,7 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
         disc.color = if (active) item.tint else pastel
         canvas.drawCircle(cx, cy, r, disc)
         if (active) canvas.drawCircle(cx, cy, r - dp(1.5f), chosenRim)
-        val s = dp(25f)
+        val s = dp(ICON_DP)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
         val top = cy + r - dp(4f)
@@ -688,4 +702,9 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
     }
 
     override fun performClick(): Boolean = super.performClick()
+
+    private companion object {
+        /** The icon on the 56 dp disc. */
+        const val ICON_DP = 31f
+    }
 }
