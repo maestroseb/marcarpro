@@ -1317,10 +1317,12 @@ class AnnotationView(context: Context) : View(context) {
                 postInvalidateOnAnimation()
             }
             else -> {
+                var center: ShapeRecognizer.Point? = null
                 if (live.tool == Tool.SHAPE) {
                     ShapeRecognizer.recognize(s.points.map { ShapeRecognizer.Point(it.x, it.y) })?.let { shape ->
                         s.replacePoints(shape.points.map { it.x }, shape.points.map { it.y })
                         s.uniform = true
+                        center = shape.center
                     }
                 }
                 s.finish()
@@ -1328,7 +1330,26 @@ class AnnotationView(context: Context) : View(context) {
                 s.group = if (live.tool == Tool.SHAPE) board.nextGroup++ else groupFor(s)
                 strokes.add(s)
                 drawOnLayer(s)
-                history.record(History.Added(s))
+                val c = center
+                if (c == null) {
+                    history.record(History.Added(s))
+                } else {
+                    // A circle comes with its centre: a dot of its own (it can be rubbed out on its
+                    // own), in the circle's group (it moves with it); one undo removes both.
+                    val dot = Stroke(s.tool, s.color, s.size * CENTER_DOT, s.speedUnit).also {
+                        it.add(c.x, c.y, 1f)
+                        it.uniform = true
+                        it.finish()
+                        it.endTime = s.endTime
+                        it.group = s.group
+                    }
+                    strokes.add(dot)
+                    drawOnLayer(dot)
+                    history.record(History.Edited(listOf(
+                        History.Op(insert = true, index = strokes.lastIndex - 1, stroke = s),
+                        History.Op(insert = true, index = strokes.lastIndex, stroke = dot),
+                    )))
+                }
             }
         }
         invalidate()
@@ -1862,6 +1883,9 @@ class AnnotationView(context: Context) : View(context) {
         // A staff: five lines 0.45 squares apart (16 dp: room for handwritten notes), every 3.5 squares.
         const val STAFF_PERIOD = 3.5f
         val STAFF_LINES = floatArrayOf(0f, 0.45f, 0.9f, 1.35f, 1.8f)
+
+        /** A circle's centre dot, as wide as this many times the circle's line. */
+        const val CENTER_DOT = 2.4f
 
         /** Below this luminance ink counts as black (and shows white on a dark paper). */
         const val DARK_INK = 0.05

@@ -113,4 +113,51 @@ class ShapeRecognizerTest {
         val wave = (0 until 40).map { i -> Point(i * 8f, (sin(i / 3.0) * 40).toFloat()) }
         assertNull(kindOf(wave))
     }
+
+    /** A regular polygon drawn by hand: wobbly sides, any turn, ending a little past the start. */
+    private fun handPolygon(sides: Int, cx: Float, cy: Float, r: Float, turn: Double): List<Point> {
+        val v = (0..sides).map { k ->
+            val a = turn + k * 2 * PI / sides
+            Point(cx + (cos(a) * r).toFloat(), cy + (sin(a) * r).toFloat())
+        }
+        val pts = (0 until sides).flatMap { k -> side(v[k].x, v[k].y, v[k + 1].x, v[k + 1].y, 16, 6f) }
+        return pts + side(v[0].x, v[0].y, v[1].x, v[1].y, 16, 6f).take(2)
+    }
+
+    @Test
+    fun `pentagons and hexagons are recognised, not taken for ellipses`() {
+        repeat(200) {
+            val turn = rnd.nextDouble() * 2 * PI
+            assertEquals(Kind.PENTAGON, kindOf(handPolygon(5, 400f, 300f, 150f, turn)))
+            assertEquals(Kind.HEXAGON, kindOf(handPolygon(6, 400f, 300f, 150f, turn)))
+        }
+    }
+
+    @Test
+    fun `a hand hexagon becomes a regular one`() {
+        val result = ShapeRecognizer.recognize(handPolygon(6, 400f, 300f, 150f, 0.3))!!
+        val pts = result.points
+        val cx = pts.map { it.x }.average().toFloat()
+        val cy = pts.map { it.y }.average().toFloat()
+        val far = pts.maxOf { hypot(it.x - cx, it.y - cy) }
+        assertEquals(150f, far, 15f)
+    }
+
+    @Test
+    fun `circles still are circles, with their centre, and ellipses have none`() {
+        repeat(100) {
+            val circle = ShapeRecognizer.recognize(handCircle(400f, 300f, 150f))!!
+            assertEquals(Kind.ELLIPSE, circle.kind)
+            val c = circle.center!!
+            assertEquals(400f, c.x, 12f)
+            assertEquals(300f, c.y, 12f)
+        }
+        val oval = (0..60).map { i ->
+            val a = i / 60.0 * 2 * PI * 1.03
+            Point(300 + (cos(a) * 160).toFloat(), 200 + (sin(a) * 70).toFloat())
+        }
+        val r = ShapeRecognizer.recognize(oval)!!
+        assertEquals(Kind.ELLIPSE, r.kind)
+        assertNull(r.center)
+    }
 }
