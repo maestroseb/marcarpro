@@ -130,4 +130,8 @@
     <string name="setup_notifications">Notifications</string>
     <string name="setup_notifications_why">Only the ongoing “Marcar Pro is on” notice, with its Stop button.</string>
     <string name="quick_edit_hint">Choose the colour to keep in that dot</string>
+    <string name="update_offer_title">New version of Marcar Pro (%1$s)</string>
+    <string name="update_offer_message">You can update now: it takes a few seconds and nothing written is lost. If you prefer later, it will install itself when the panel has been idle for a while or when it is switched on.</string>
+    <string name="update_offer_now">Update now</string>
+    <string name="update_offer_later">Later</string>
 </resources>

@@ -197,10 +197,13 @@ class OverlayService : Service() {
             firstCheck = false
             updates.execute {
                 updater.checkAndDownload(force)
+                val version = updater.readyVersion ?: return@execute
                 // Just switched on and nobody has used it yet: the update goes in now, before class
-                // (a few seconds; the ink is saved and comes back). Later, only after a long pause.
-                if (updater.ready && lastActivity == startedAt && SystemClock.uptimeMillis() - startedAt < FRESH_START_MS) {
+                // (a few seconds; the ink is saved and comes back). Otherwise the teacher is asked.
+                if (lastActivity == startedAt && SystemClock.uptimeMillis() - startedAt < FRESH_START_MS) {
                     handler.post(::installUpdate)
+                } else {
+                    handler.post { offerUpdate(version) }
                 }
             }
             if (SystemClock.uptimeMillis() - lastActivity > UPDATE_IDLE_MS) installUpdate()
@@ -894,8 +897,13 @@ class OverlayService : Service() {
      * Opens or closes the endless whiteboard over whatever is on screen. A finger drags the paper,
      * two fingers zoom it; the pen writes as usual. Its ink is kept like any page's.
      */
+    // Whether the screen was in use (the cursor) when the whiteboard opened: it is again after.
+    private var pausedBeforeWhiteboard = false
+
     private fun toggleWhiteboard() {
         if (!whiteboard) {
+            // (Kept when the whiteboard comes back after a cut-out.)
+            pausedBeforeWhiteboard = pausedBeforeWhiteboard || paused
             if (paused) togglePause()
             closeRing()
             underPage = pageKey
@@ -905,6 +913,12 @@ class OverlayService : Service() {
         } else {
             whiteboard = false
             showPage(underPage, now = true)
+            // Back to the cursor if that is where the teacher came from (not when a cut-out is on its way).
+            if (!cropping) {
+                val back = pausedBeforeWhiteboard
+                pausedBeforeWhiteboard = false
+                if (back && !paused) togglePause()
+            }
         }
         whiteView?.on = whiteboard
         showPaperPicker(whiteboard)
@@ -1315,8 +1329,11 @@ class OverlayService : Service() {
      * ink window takes no touch at all, so the finger scrolls natively and nothing lags.
      */
     private fun togglePause() {
-        // Using the screen means seeing it: the whiteboard closes first.
-        if (!paused && whiteboard) toggleWhiteboard()
+        // Using the screen means seeing it: the whiteboard closes first (already going to the cursor).
+        if (!paused && whiteboard) {
+            pausedBeforeWhiteboard = false
+            toggleWhiteboard()
+        }
         paused = !paused
         if (paused) {
             closeRing()
@@ -1437,6 +1454,28 @@ class OverlayService : Service() {
     // Asked once per run of the layer: at the next start (the panel switched on) it asks again.
     private var askedForUpdates = false
 
+    // The version already offered in this run ("Later" means: not again until the next start).
+    private var offeredVersion: String? = null
+
+    /**
+     * A new version is downloaded while the board is in use: a card offers it now or later. Later,
+     * it still goes in by itself after a long pause or at the next start.
+     */
+    private fun offerUpdate(version: String) {
+        if (canvas == null || offeredVersion == version || cropping || prompt != null || setupView != null) return
+        if (!packageManager.canRequestPackageInstalls()) {
+            askToAllowUpdates()
+            return
+        }
+        offeredVersion = version
+        showPrompt(
+            getString(R.string.update_offer_title, version),
+            getString(R.string.update_offer_message),
+            getString(R.string.update_offer_now),
+            no = getString(R.string.update_offer_later),
+        ) { installUpdate() }
+    }
+
     /** An update is waiting but the panel doesn't let Marcar Pro install it: a card asks, once. */
     private fun askToAllowUpdates() {
         if (askedForUpdates || canvas == null) return
@@ -1450,9 +1489,9 @@ class OverlayService : Service() {
      * A card with a message and two buttons, in the layer's own window. "Yes" first puts the layer
      * on "using the screen", as what it opens (Settings) must be usable with the finger.
      */
-    private fun showPrompt(title: String, message: String, yes: String, onYes: () -> Unit) {
+    private fun showPrompt(title: String, message: String, yes: String, no: String = getString(R.string.relay_later), onYes: () -> Unit) {
         if (prompt != null) return
-        val view = PromptView(this, title, message, yes = yes, no = getString(R.string.relay_later)) { accepted ->
+        val view = PromptView(this, title, message, yes = yes, no = no) { accepted ->
             closePrompt()
             if (accepted) {
                 if (!paused) togglePause()

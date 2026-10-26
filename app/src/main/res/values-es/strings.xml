@@ -129,4 +129,8 @@
     <string name="setup_notifications">Notificaciones</string>
     <string name="setup_notifications_why">Solo el aviso fijo «Marcar Pro activo», con el botón Detener.</string>
     <string name="quick_edit_hint">Elige el color que quieres guardar en esa bolita</string>
+    <string name="update_offer_title">Nueva versión de Marcar Pro (%1$s)</string>
+    <string name="update_offer_message">Puedes actualizar ahora: tarda unos segundos y no se pierde nada de lo escrito. Si prefieres más tarde, se instalará sola cuando el panel lleve un rato sin uso o al encenderlo.</string>
+    <string name="update_offer_now">Actualizar ahora</string>
+    <string name="update_offer_later">Más tarde</string>
 </resources>

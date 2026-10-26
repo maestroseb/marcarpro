@@ -69,6 +69,9 @@ internal class Updater(context: Context) {
     /** True when a downloaded update is waiting to be installed. */
     val ready: Boolean get() = prefs.getString(KEY_READY, null) != null && apk.exists()
 
+    /** The version waiting to be installed, or null. */
+    val readyVersion: String? get() = if (ready) prefs.getString(KEY_READY, null) else null
+
     /** What [installIfReady] did. */
     enum class Install { NOTHING, STARTED, NEEDS_PERMISSION }
 
