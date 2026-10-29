@@ -121,11 +121,14 @@ internal class OrbitLayout(
     private var orbitAlpha = 0f
     private var orbitVisible = false
 
-    /** Distance from the orb centre to each satellite centre. */
-    val radius = dp(104f)
+    /** Distance from the orb centre to each satellite centre, at most: fewer tools sit closer ([placeSlots]). */
+    private val radius = dp(104f)
+
+    /** The ring's radius as last opened (the dashed orbit follows it). */
+    private var ringRadius = radius
 
     /** Near an edge the tools fan out on a wider arc of this radius instead of a full ring. */
-    private val fanRadius = max(radius, (items.size - 1) * satSize * 1.3f / FAN_SPAN.toFloat())
+    private val fanRadius = max(radius, (items.size - 1) * satSize * STEP.toFloat() / FAN_SPAN.toFloat())
 
     val openSize = (2 * (fanRadius + satSize / 2f + dp(34f))).toInt()
 
@@ -246,10 +249,15 @@ internal class OrbitLayout(
         val sh = screenH
         val margin = satSize / 2f + dp(8f)
         val labelRoom = dp(26f)
-        val fits = cx - radius - margin > 0 && cx + radius + margin < sw &&
-            cy - radius - margin > 0 && cy + radius + margin + labelRoom < sh
+        // As close to the orb as the tools shown leave room for, each a step apart on the arc.
+        val nearest = dp(NEAREST_DP)
+        val ringR = (n * satSize * STEP / (2 * PI)).toFloat().coerceIn(nearest, radius)
+        val fanR = ((n - 1) * satSize * STEP / FAN_SPAN).toFloat().coerceIn(nearest, fanRadius)
+        ringRadius = ringR
+        val fits = cx - ringR - margin > 0 && cx + ringR + margin < sw &&
+            cy - ringR - margin > 0 && cy + ringR + margin + labelRoom < sh
         val angles = DoubleArray(n)
-        val r = if (fits) radius else fanRadius
+        val r = if (fits) ringR else fanR
         if (fits) {
             for (i in 0 until n) angles[i] = -PI / 2 + i * 2 * PI / n
             doneAngle = PI / 2
@@ -451,7 +459,7 @@ internal class OrbitLayout(
         super.onDraw(canvas)
         if (orbitAlpha > 0f && orbitVisible) {
             orbitPaint.alpha = (115 * orbitAlpha).toInt()
-            canvas.drawCircle(width / 2f, height / 2f, radius * (0.6f + 0.4f * orbitAlpha), orbitPaint)
+            canvas.drawCircle(width / 2f, height / 2f, ringRadius * (0.6f + 0.4f * orbitAlpha), orbitPaint)
         }
         if (editing) {
             // "Done", between the orb and the tools.
@@ -504,7 +512,11 @@ internal class OrbitLayout(
 
     private companion object {
         val EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
-        const val FAN_SPAN = PI * 0.85
+        const val FAN_SPAN = PI
+        /** Arc between two tools' centres, in tool widths (room for the label pills too). */
+        const val STEP = 1.42
+        /** The closest a tool sits to the orb's centre (the orb, a gap and the tool). */
+        const val NEAREST_DP = 86f
         val FAN_TURNS = listOf(0.0, 0.2, -0.2, 0.4, -0.4, 0.6, -0.6, 0.8, -0.8, 1.0, -1.0)
         const val WIGGLE_MS = 700L
         const val WIGGLE_DEGREES = 2.5f
