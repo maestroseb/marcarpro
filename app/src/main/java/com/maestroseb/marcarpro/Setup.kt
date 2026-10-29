@@ -56,7 +56,7 @@ internal class SetupView(
         title.apply {
             textSize = 22f
             setTextColor(OrbStyle.INK)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = Fonts.bold(context)
         }
         card.addView(title)
         card.addView(TextView(context).apply {
@@ -103,7 +103,7 @@ internal class SetupView(
                 text = if (item.optional) context.getString(R.string.setup_optional, item.title) else item.title
                 textSize = 17f
                 setTextColor(OrbStyle.INK)
-                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                typeface = Fonts.bold(context)
             })
             addView(TextView(context).apply {
                 text = item.why
@@ -123,7 +123,7 @@ internal class SetupView(
     private fun button(label: String, filled: Boolean, onTap: () -> Unit) = TextView(context).apply {
         text = label
         textSize = 16f
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
         setTextColor(if (filled) Color.WHITE else OrbStyle.TEAL_DARK)
         setPadding(dpi(20f), dpi(10f), dpi(20f), dpi(10f))
         background = GradientDrawable().apply {

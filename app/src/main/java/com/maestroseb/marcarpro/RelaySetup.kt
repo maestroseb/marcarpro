@@ -95,7 +95,7 @@ internal class PromptView(
             text = title
             textSize = 22f
             setTextColor(OrbStyle.INK)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = Fonts.bold(context)
         })
         card.addView(TextView(context).apply {
             text = message
@@ -115,7 +115,7 @@ internal class PromptView(
     private fun button(label: String, filled: Boolean, onTap: () -> Unit) = TextView(context).apply {
         text = label
         textSize = 16f
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
         setTextColor(if (filled) Color.WHITE else OrbStyle.TEAL_DARK)
         setPadding(dpi(22f), dpi(12f), dpi(22f), dpi(12f))
         background = GradientDrawable().apply {

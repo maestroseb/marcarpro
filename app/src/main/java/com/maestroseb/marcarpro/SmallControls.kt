@@ -363,7 +363,7 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
             textSize = 15f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = Fonts.bold(context)
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(OrbStyle.CHROME)
                 cornerRadius = dp(20f)
@@ -386,7 +386,7 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
             text = title
             textSize = 14f
             setTextColor(0xFF6B7280.toInt())
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = Fonts.bold(context)
         }, LayoutParams(dpi(LABEL_WIDTH_DP), LayoutParams.WRAP_CONTENT))
         for (s in swatches) row.addView(s, LayoutParams(dpi(SWATCH_DP), dpi(SWATCH_DP)))
         addView(row)
@@ -545,10 +545,11 @@ internal class PaperPickerView(
     private val boardH = dp(BOARD_H_DP)
     private val boardText = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(14f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
     }
     private val boardHint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(11.5f)
+        typeface = Fonts.regular(context)
     }
     private val myBoards = context.getString(R.string.my_boards)
     private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1f) }
@@ -582,7 +583,7 @@ internal class PaperPickerView(
     }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(11.5f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.regular(context)
         textAlign = Paint.Align.CENTER
     }
     private val r = RectF()
@@ -791,7 +792,7 @@ internal class HintView(context: Context) : TextView(context) {
     init {
         textSize = 17f
         setTextColor(Color.WHITE)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.regular(context)
         gravity = Gravity.CENTER
         maxWidth = dpi(720f)
         setPadding(dpi(22f), dpi(12f), dpi(22f), dpi(12f))
@@ -827,7 +828,7 @@ internal class HintView(context: Context) : TextView(context) {
             append("   ")
             val start = length
             append(actionLabel)
-            setSpan(android.text.style.StyleSpan(Typeface.BOLD), start, length, 0)
+            setSpan(FontSpan(Fonts.bold(context)), start, length, 0)
             setSpan(android.text.style.ForegroundColorSpan(ACTION_COLOR), start, length, 0)
         }
         setAction(if (actionLabel == null) null else onAction)
@@ -848,6 +849,12 @@ internal class HintView(context: Context) : TextView(context) {
         }
         isClickable = a != null
         if (had != (a != null)) onActionShown?.invoke(a != null)
+    }
+
+    /** The real bold face for the action (a bold style would only smear the regular one). */
+    private class FontSpan(private val face: Typeface) : android.text.style.MetricAffectingSpan() {
+        override fun updateDrawState(tp: android.text.TextPaint) { tp.typeface = face }
+        override fun updateMeasureState(tp: android.text.TextPaint) { tp.typeface = face }
     }
 
     private companion object {

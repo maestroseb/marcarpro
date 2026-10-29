@@ -333,7 +333,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
     private fun text(size: Float, color: Int, bold: Boolean = false) = TextView(context).apply {
         textSize = size
         setTextColor(color)
-        if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = if (bold) Fonts.bold(context) else Fonts.regular(context)
     }
 
     companion object {
@@ -371,7 +371,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
     }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(14.5f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
         textAlign = Paint.Align.CENTER
         fontFeatureSettings = "tnum"
     }

@@ -43,7 +43,7 @@ internal class CropView(context: Context, private val shot: Bitmap, private val 
     private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(6f), 0f, dp(2f), OrbStyle.SHADOW) }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(16f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
     }
     private val dst = RectF()
     private val origin = IntArray(2)

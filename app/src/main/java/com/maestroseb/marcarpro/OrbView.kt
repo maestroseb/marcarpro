@@ -161,7 +161,7 @@ internal class OrbitLayout(
     private val doneText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = context.sp(14f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
     }
     private val doneLabel = context.getString(R.string.ring_done)
     private var wiggle: android.animation.ValueAnimator? = null
@@ -682,7 +682,7 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = context.sp(12f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
     }
     private val labelWidth = labelPaint.measureText(item.label)
     private val pillH = dp(20f)

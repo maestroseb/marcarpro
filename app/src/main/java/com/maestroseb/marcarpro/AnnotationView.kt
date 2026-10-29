@@ -367,7 +367,7 @@ class AnnotationView(context: Context) : View(context) {
     private val menuText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = OrbStyle.LABEL
         textSize = context.sp(15f)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = Fonts.bold(context)
     }
     private val menuDivider = Paint().apply { color = 0x14000000 }
     private val swatchPaint = Paint(Paint.ANTI_ALIAS_FLAG)

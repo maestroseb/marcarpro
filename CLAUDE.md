@@ -90,6 +90,10 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
   its window takes touches only then, panel area `AREA_HINT` 7713); a page turn slides the new ink in
   from its side (`drawLayer`, the tiles drawn translated with alpha) while the old slides out fading, over
   paper that stays put; the page pill's number rolls. Not themed yet: the boards list card, the palette.
+  Typeface: Atkinson Hyperlegible (`res/font/atkinson_*.ttf`, SIL OFL, licence in
+  `licenses/AtkinsonHyperlegible-OFL.txt`) through `Fonts` in `Ui.kt`: regular for labels and messages,
+  bold only for what matters (board name, page number, the hint's action: `HintView.FontSpan`, not a
+  synthetic bold).
 - **Saving:** only boards that changed are written (`changed`), through `AtomicFile` (synced: the panel
   is often switched off at the wall); a board left empty deletes its file. Saved ink is read and decoded
   on the IO thread (`loadBoard` → `AnnotationView.addSaved`, appended after anything written meanwhile),
