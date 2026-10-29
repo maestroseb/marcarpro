@@ -361,23 +361,32 @@ internal class BoardListView(context: Context, private val listener: Listener) :
 @SuppressLint("ViewConstructor")
 internal class PagePillView(context: Context, private val onPrev: () -> Unit, private val onNext: () -> Unit, private val onAdd: () -> Unit) : View(context) {
     private val margin = dp(8f)
-    private val card = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(8f), 0f, dp(2.5f), OrbStyle.SHADOW) }
+    private val card = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val glyph = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2.4f)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = OrbStyle.CHROME
     }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(14.5f)
-        color = OrbStyle.INK
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         textAlign = Paint.Align.CENTER
         fontFeatureSettings = "tnum"
     }
-    private val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.CHROME_HAIRLINE; strokeWidth = dp(1f) }
-    private val pressFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ColorUtils.setAlphaComponent(OrbStyle.CHROME, 0x14) }
+    private val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1f) }
+    private val pressFill = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    // Turning the page rolls the number: the old one leaves upwards (forwards) as the new one comes in.
+    private var rollFrom = ""
+    private var roll = 1f
+    private var rollDir = 1
+    private val rollAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = ROLL_MS
+        interpolator = android.view.animation.PathInterpolator(0.22f, 0.9f, 0.24f, 1f)
+        addUpdateListener { roll = it.animatedValue as Float; invalidate() }
+    }
     private val r = RectF()
     private var pressed = -1
 
@@ -393,6 +402,11 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
 
     fun set(page: Int, pages: Int) {
         if (page == this.page && pages == this.pages) return
+        if (page != this.page && isAttachedToWindow) {
+            rollFrom = "${this.page + 1} / ${this.pages}"
+            rollDir = if (page > this.page) 1 else -1
+            rollAnim.start()
+        }
         this.page = page
         this.pages = pages
         contentDescription = context.getString(R.string.page_of, page + 1, pages)
@@ -427,7 +441,16 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
     override fun onDraw(canvas: Canvas) {
         val h = dp(HEIGHT_DP)
         r.set(margin, margin, width - margin, margin + h)
+        card.color = Chrome.surface
+        Chrome.shade(card, dp(8f), dp(2.5f))
         canvas.drawRoundRect(r, h / 2, h / 2, card)
+        edge.color = Chrome.hairline
+        r.inset(dp(0.5f), dp(0.5f))
+        canvas.drawRoundRect(r, h / 2, h / 2, edge)
+        glyph.color = Chrome.icon
+        label.color = Chrome.text
+        divider.color = Chrome.hairline
+        pressFill.color = Chrome.pressed
         if (pressed in listOf(0, 2, 3)) {
             val x = left(pressed)
             canvas.drawCircle(x + cell / 2, margin + h / 2, h / 2 - dp(5f), pressFill)
@@ -452,7 +475,22 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         canvas.drawLine(cx - a, cy, cx + a, cy, glyph)
         canvas.drawLine(cx, cy - a, cx, cy + a, glyph)
         val t = "${page + 1} / $pages"
-        canvas.drawText(t, left(1) + middle / 2, cy - (label.descent() + label.ascent()) / 2, label)
+        val tx = left(1) + middle / 2
+        val ty = cy - (label.descent() + label.ascent()) / 2
+        if (roll >= 1f) {
+            canvas.drawText(t, tx, ty, label)
+        } else {
+            // Clipped to the middle cell, so the numbers roll in and out of a little window.
+            val shift = dp(ROLL_DP) * rollDir
+            canvas.save()
+            canvas.clipRect(left(1), margin, left(2), margin + h)
+            label.alpha = ((1f - roll) * 255).toInt()
+            canvas.drawText(rollFrom, tx, ty - shift * roll, label)
+            label.alpha = (roll * 255).toInt()
+            canvas.drawText(t, tx, ty + shift * (1f - roll), label)
+            label.alpha = 255
+            canvas.restore()
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -478,5 +516,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         const val HEIGHT_DP = 44f
         const val CELL_DP = 40f
         const val MIDDLE_DP = 52f
+        const val ROLL_DP = 18f
+        const val ROLL_MS = 320L
     }
 }

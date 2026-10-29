@@ -79,6 +79,17 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
   restore); `PagePillView` "‹ 2/3 › +" (compact, 44 dp) fixed in the top right corner (`placePagePill`;
   the left is where teachers write the date and heading; the movable clear-all button starts just under it, saved as "clearAll"), while the whiteboard is open; turning back from
   an empty last page drops it. Panel touch areas `AREA_BOARDS` 7711, `AREA_PAGES` 7712.
+- **Paper and graphite (1.6.0):** one material for every control that isn't the orb (`Chrome` in
+  `OrbView.kt`): white, 1 dp graphite hairline, the same soft shadow, graphite icons; views read its
+  colours as they draw. On dark paper (`PaperColor.dark`, whiteboard only) `Chrome.dark` fades to 1 in
+  350 ms (`applyChrome`) and they turn graphite with light icons. Clear-all is graphite too; red only while
+  held (icon, swelling, ring). The paper picker closed is a 44 dp round button with just the paper's
+  pattern (the user found the name took too much room). Motion, kept cheap for the 4K Mali panel (no extra
+  full-screen layers): clear-all sweeps the ink off right to left (`AnnotationView.drawSweep`: clipped
+  bands; boards over 2000 strokes just fade) and the hint offers "Undo" for 6 s (`HintView` with an action:
+  its window takes touches only then, panel area `AREA_HINT` 7713); a page turn slides the new ink in
+  from its side (`drawLayer`, the tiles drawn translated with alpha) while the old slides out fading, over
+  paper that stays put; the page pill's number rolls. Not themed yet: the boards list card, the palette.
 - **Saving:** only boards that changed are written (`changed`), through `AtomicFile` (synced: the panel
   is often switched off at the wall); a board left empty deletes its file. Saved ink is read and decoded
   on the IO thread (`loadBoard` → `AnnotationView.addSaved`, appended after anything written meanwhile),

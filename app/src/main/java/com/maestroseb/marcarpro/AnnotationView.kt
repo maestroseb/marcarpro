@@ -21,7 +21,9 @@ import android.view.View
 import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.withClip
 import androidx.core.graphics.withMatrix
+import androidx.core.graphics.withTranslation
 import androidx.input.motionprediction.MotionEventPredictor
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -196,7 +198,18 @@ class AnnotationView(context: Context) : View(context) {
     private val lifted = LinkedHashSet<Stroke>()
     private val dirty = RectF()
 
-    private class Fade(val stroke: Stroke, val start: Long)
+    /** Ink on its way out; [shift] (screen px) slides it aside as it goes, when the page turns. */
+    private class Fade(val stroke: Stroke, val start: Long, val shift: Float = 0f)
+
+    /** Cleared ink being swept off, right to left, like a duster across the board. */
+    private class Sweep(val strokes: List<Stroke>, val start: Long)
+
+    private var sweep: Sweep? = null
+
+    // A page turn: the new page's ink slides in from the side it comes from, as the old one leaves.
+    private var turnStart = 0L
+    private var turnShift = 0f
+    private val turnPaint = Paint()
 
     private val fades = ArrayList<Fade>()
     private val magic = ArrayList<Fade>()
@@ -403,7 +416,7 @@ class AnnotationView(context: Context) : View(context) {
         stopFlight()
         cancelInk()
         cancelGesture()
-        removeStrokes { true }
+        removeStrokes(sweep = strokes.size <= SWEEP_MAX_STROKES) { true }
         return true
     }
 
@@ -493,8 +506,12 @@ class AnnotationView(context: Context) : View(context) {
     /** True while nothing is being written, erased, moved or flying: safe to swap boards. */
     val isIdle get() = gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && !flying
 
-    /** Shows [next] instead of the current board, which is returned; the old ink fades out. */
-    internal fun showBoard(next: Board): Board {
+    /**
+     * Shows [next] instead of the current board, which is returned; the old ink fades out. Turning
+     * a page ([direction] 1 forwards, -1 back), the old ink also slides away and the new comes in
+     * from the other side, over paper that stays put.
+     */
+    internal fun showBoard(next: Board, direction: Int = 0): Board {
         val previous = board
         if (next === previous) return previous
         stopFlight()
@@ -502,7 +519,10 @@ class AnnotationView(context: Context) : View(context) {
         cancelGesture()
         clearSelection()
         val now = SystemClock.uptimeMillis()
-        for (s in previous.strokes) fades.add(Fade(s, now))
+        val shift = -direction * width * TURN_SHIFT
+        for (s in previous.strokes) fades.add(Fade(s, now, shift))
+        turnStart = if (direction != 0) now else 0L
+        turnShift = -shift
         board = next
         lifted.clear()
         panning = false
@@ -654,7 +674,8 @@ class AnnotationView(context: Context) : View(context) {
         if (board.paper) drawPaper(canvas)
         // While the whiteboard moves, its ink is drawn directly (the layer is re-rasterised after).
         if (!panning) repaintDirty()
-        if (!inkHidden && !panning) layer.draw(canvas)
+        if (!inkHidden && !panning) drawLayer(canvas)
+        if (!inkHidden) drawSweep(canvas)
         canvas.withMatrix(camera) {
             if (!inkHidden) {
                 if (panning) {
@@ -778,9 +799,61 @@ class AnnotationView(context: Context) : View(context) {
         while (it.hasNext()) {
             val f = it.next()
             val t = (now - f.start) / FADE_MS.toFloat()
-            if (t >= 1f) it.remove() else drawStroke(canvas, f.stroke, (1f - t) * (1f - t))
+            when {
+                t >= 1f -> it.remove()
+                f.shift == 0f -> drawStroke(canvas, f.stroke, (1f - t) * (1f - t))
+                else -> canvas.withTranslation(f.shift * TURN_EASE.getInterpolation(t) / zoom, 0f) {
+                    drawStroke(this, f.stroke, (1f - t) * (1f - t))
+                }
+            }
         }
         if (fades.isNotEmpty()) postInvalidateOnAnimation()
+    }
+
+    /** The committed ink; during a page turn it slides into place and comes up from transparent. */
+    private fun drawLayer(canvas: Canvas) {
+        if (turnStart == 0L) {
+            layer.draw(canvas)
+            return
+        }
+        val t = (SystemClock.uptimeMillis() - turnStart) / TURN_MS.toFloat()
+        if (t >= 1f) {
+            turnStart = 0L
+            layer.draw(canvas)
+            return
+        }
+        val e = TURN_EASE.getInterpolation(t)
+        turnPaint.alpha = (255 * e).toInt()
+        canvas.withTranslation(turnShift * (1f - e), 0f) { layer.draw(this, turnPaint) }
+        postInvalidateOnAnimation()
+    }
+
+    /**
+     * Cleared ink going off under a moving edge, from right to left. The edge is soft: a few bands
+     * just before it are already half gone. Only clipping, no extra full-screen layer: on the
+     * panel every frame redraws the whole 4K window.
+     */
+    private fun drawSweep(canvas: Canvas) {
+        val sw = sweep ?: return
+        val t = (SystemClock.uptimeMillis() - sw.start) / SWEEP_MS.toFloat()
+        if (t >= 1f) {
+            sweep = null
+            return
+        }
+        val soft = width * SWEEP_SOFT
+        val edge = width + soft - (width + 2 * soft) * SWEEP_EASE.getInterpolation(t)
+        val band = soft / SWEEP_BANDS
+        for (i in 0..SWEEP_BANDS) {
+            // Band 0 is everything left of the soft edge, fully there; then fainter and fainter.
+            val left = if (i == 0) 0f else edge - soft + (i - 1) * band
+            val right = edge - soft + i * band
+            if (right <= 0f) continue
+            val alpha = 1f - i / (SWEEP_BANDS + 1f)
+            canvas.withClip(left, 0f, right, height.toFloat()) {
+                withMatrix(camera) { for (s in sw.strokes) drawStroke(this, s, alpha) }
+            }
+        }
+        postInvalidateOnAnimation()
     }
 
     /** Magic ink: fully visible for a moment, then it melts away. */
@@ -1855,8 +1928,11 @@ class AnnotationView(context: Context) : View(context) {
         invalidate()
     }
 
-    /** Removes matching strokes as one undoable change; they fade out rather than vanish. */
-    private fun removeStrokes(predicate: (Stroke) -> Boolean) {
+    /**
+     * Removes matching strokes as one undoable change; they fade out rather than vanish, or are
+     * swept off ([sweep], clearing the board).
+     */
+    private fun removeStrokes(sweep: Boolean = false, predicate: (Stroke) -> Boolean) {
         val ops = ArrayList<History.Op>()
         val now = SystemClock.uptimeMillis()
         for (index in strokes.indices.reversed()) {
@@ -1864,11 +1940,12 @@ class AnnotationView(context: Context) : View(context) {
             if (predicate(s)) {
                 strokes.removeAt(index)
                 ops.add(History.Op(insert = false, index = index, stroke = s))
-                fades.add(Fade(s, now))
+                if (!sweep) fades.add(Fade(s, now))
                 invalidateLayer(s.bounds)
             }
         }
         if (ops.isEmpty()) return
+        if (sweep) this.sweep = Sweep(ops.map { it.stroke }.asReversed(), now)
         selection.clear()
         selectionRect.setEmpty()
         menuShown = false
@@ -1893,6 +1970,19 @@ class AnnotationView(context: Context) : View(context) {
         const val IR_PEN_MAX = 2.2f
         const val IR_PALM_MIN = 15f
         const val FADE_MS = 220L
+
+        // Page turn: how far the ink slides (a share of the width) and for how long.
+        const val TURN_SHIFT = 0.06f
+        const val TURN_MS = 380L
+        val TURN_EASE = android.view.animation.PathInterpolator(0.22f, 0.9f, 0.24f, 1f)
+
+        // Clear-all sweep: its length, the soft edge (share of the width) and its bands. A board
+        // with very much ink just fades, as before (the sweep draws it several times a frame).
+        const val SWEEP_MS = 650L
+        const val SWEEP_SOFT = 0.12f
+        const val SWEEP_BANDS = 3
+        const val SWEEP_MAX_STROKES = 2000
+        val SWEEP_EASE = android.view.animation.PathInterpolator(0.5f, 0f, 0.3f, 1f)
         const val LASSO_HOLD_MS = 450L
         const val MAX_DRAG_POINTS = 64
         const val GROUP_WINDOW = 96

@@ -83,7 +83,8 @@
     <string name="palette_size">Size</string>
     <string name="clear_hold">Press and hold to clear the board</string>
     <string name="closed_saved">Marcar Pro closed · your ink will be here next time</string>
-    <string name="board_cleared">Board cleared · hold the main button to undo</string>
+    <string name="board_cleared">Board cleared</string>
+    <string name="undo">Undo</string>
     <string name="nothing_to_clear">There is nothing to clear</string>
     <string name="undo_done">Undone</string>
     <string name="nothing_to_undo">Nothing to undo</string>

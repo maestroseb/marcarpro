@@ -93,6 +93,7 @@ class OverlayService : Service() {
         // A new key since 1.5.0: the clear-all button's old spot, top right, is now the page pill's.
         private const val TRASH_POSITION = "clearAll"
         private const val PILL_EDGE_DP = 24f
+        private const val CHROME_FADE_MS = 350L
         // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
         // 30° apart, 32 dp between centres, as wide as each dot's window.
         private val QUICK_ANGLES_RIGHT = doubleArrayOf(15.0, 45.0, 75.0)
@@ -254,6 +255,7 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         running = true
+        Chrome.dark = 0f // the layer starts on the PC, never on a dark whiteboard
         startInForeground()
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
@@ -472,6 +474,7 @@ class OverlayService : Service() {
         }, onColor = { c ->
             if (whiteboards.current == null) prefs.paperColor = c else whiteboards.setPaper(whiteboards.current!!.paper, c)
             canvas?.paperColor = c
+            applyChrome()
         }, onBoards = ::showBoards).apply {
             paper = prefs.paper
             paperColor = prefs.paperColor
@@ -645,7 +648,7 @@ class OverlayService : Service() {
      * Shows [key]'s board. A page change waits for the pen to lift; an explicit one ([now], the
      * whiteboard button) happens at once (whatever is half done is landed or dropped).
      */
-    private fun showPage(key: String, now: Boolean = false) {
+    private fun showPage(key: String, now: Boolean = false, direction: Int = 0) {
         val ink = canvas ?: return
         handler.removeCallbacks(retryPage)
         if (key == pageKey) {
@@ -663,7 +666,7 @@ class OverlayService : Service() {
         saveNow()
         hidePalette()
         pageKey = key
-        ink.showBoard(loadBoard(ink, key))
+        ink.showBoard(loadBoard(ink, key), direction)
     }
 
     /** Ink of pages not visited for a month goes away, so the board doesn't fill up. */
@@ -972,6 +975,7 @@ class OverlayService : Service() {
             }
         }
         whiteView?.on = whiteboard
+        applyChrome()
         showPaperPicker(whiteboard)
         showPagePill(whiteboard)
         if (!whiteboard) hideBoards()
@@ -1013,10 +1017,31 @@ class OverlayService : Service() {
         val color = b?.color ?: prefs.paperColor
         canvas?.paperStyle = paper
         canvas?.paperColor = color
+        applyChrome()
         paperPicker?.apply {
             this.paper = paper
             paperColor = color
             boardName = b?.name ?: getString(R.string.board_quick)
+        }
+    }
+
+    private var chromeAnim: android.animation.ValueAnimator? = null
+
+    /**
+     * The controls' material follows the paper: graphite on a dark whiteboard, white everywhere
+     * else, with a short fade between the two.
+     */
+    private fun applyChrome() {
+        val target = if (whiteboard && (whiteboards.current?.color ?: prefs.paperColor).dark) 1f else 0f
+        if (chromeAnim?.isRunning != true && Chrome.dark == target) return
+        chromeAnim?.cancel()
+        chromeAnim = android.animation.ValueAnimator.ofFloat(Chrome.dark, target).apply {
+            duration = CHROME_FADE_MS
+            addUpdateListener {
+                Chrome.dark = it.animatedValue as Float
+                for (v in listOf(trashFloater?.view, whiteFloater?.view, pagePill, paperPicker)) v?.invalidate()
+            }
+            start()
         }
     }
 
@@ -1109,7 +1134,7 @@ class OverlayService : Service() {
         val leaving = whiteboards.page
         val dropLast = leaving == whiteboards.pages - 1 && page < leaving && ink.isEmpty && pageKey !in loading
         whiteboards.goTo(page)
-        showPage(whiteboards.key, now = true)
+        showPage(whiteboards.key, now = true, direction = if (page > leaving) 1 else -1)
         if (dropLast) {
             boards.remove(Boards.pageKey(whiteboards.current?.id, leaving))
             whiteboards.dropLastPage()
@@ -1946,7 +1971,15 @@ class OverlayService : Service() {
 
     private fun clearAll() {
         val ink = canvas ?: return
-        if (ink.clearAll()) toast(R.string.board_cleared) else toast(R.string.nothing_to_clear)
+        if (!ink.clearAll()) {
+            toast(R.string.nothing_to_clear)
+            return
+        }
+        // A whole board gone with one hold: for a few seconds it comes back with one tap.
+        val cleared = pageKey
+        toast(getString(R.string.board_cleared), action = getString(R.string.undo)) {
+            if (pageKey == cleared) canvas?.undo()
+        }
     }
 
     private fun applyInk() {
@@ -2065,19 +2098,33 @@ class OverlayService : Service() {
     private fun toast(res: Int, long: Boolean = false) = toast(getString(res), long)
 
     /** A short message in our own pill (Android's toasts are hidden when notifications are off). */
-    private fun toast(message: String, long: Boolean = false) {
+    private fun toast(message: String, long: Boolean = false, action: String? = null, onAction: (() -> Unit)? = null) {
         val view = hintView ?: HintView(this).also { v ->
             hintView = v
-            wm.addView(v, WLP(
+            val params = WLP(
                 WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
                 WLP.FLAG_NOT_TOUCHABLE or WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 y = dpi(72f)
                 title = "Marcar Pro hint"
-            })
+            }
+            wm.addView(v, params)
+            // With an action the pill takes touches (and the panel routes them to it) while it shows.
+            v.onActionShown = { on ->
+                params.flags = if (on) params.flags and WLP.FLAG_NOT_TOUCHABLE.inv() else params.flags or WLP.FLAG_NOT_TOUCHABLE
+                runCatching { wm.updateViewLayout(v, params) }
+                if (on) v.post { reserveHint(v) } else panel?.clearArea(PanelTouch.AREA_HINT)
+            }
+            v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (v.isClickable) reserveHint(v) }
         }
-        view.show(message, long)
+        view.show(message, long, action, onAction)
+    }
+
+    private fun reserveHint(v: View) {
+        val at = IntArray(2)
+        v.getLocationOnScreen(at)
+        panel?.setArea(PanelTouch.AREA_HINT, Rect(at[0], at[1], at[0] + v.width, at[1] + v.height))
     }
 
     // endregion

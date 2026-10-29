@@ -17,27 +17,26 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 
 /**
- * A round button with an icon (the whiteboard): graphite on white, solid graphite when [on]
- * ([OrbStyle.CHROME]: only the orb wears colour).
+ * A round button with an icon (the whiteboard), in the [Chrome] material; solid (inverted) when
+ * [on]: only the orb wears colour.
  * An optional small badge sits on its rim at two o'clock, like the main orb's cursor: on the
  * whiteboard button, the scissors that cut a piece of the screen out onto it.
  */
 @SuppressLint("ViewConstructor")
 internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : View(context) {
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(6f), 0f, dp(2f), OrbStyle.SHADOW) }
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f) }
-    private val icon = ContextCompat.getDrawable(context, iconRes)!!.mutate().apply { setTint(OrbStyle.CHROME) }
-    // The badge looks like the orb's own at rest: white, a hairline, the icon in graphite.
-    private val badge = if (badgeRes == 0) null else ContextCompat.getDrawable(context, badgeRes)!!.mutate().apply { setTint(OrbStyle.CHROME) }
-    private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
-    private val badgeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = OrbStyle.CHROME_HAIRLINE }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val icon = ContextCompat.getDrawable(context, iconRes)!!.mutate()
+    // The badge is a smaller button of the same material.
+    private val badge = if (badgeRes == 0) null else ContextCompat.getDrawable(context, badgeRes)!!.mutate()
+    private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val badgeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val spring = PressSpring(this)
 
     var on = false
         set(value) {
             if (field == value) return
             field = value
-            icon.setTint(if (value) Color.WHITE else OrbStyle.CHROME)
             invalidate()
         }
 
@@ -64,20 +63,26 @@ internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : 
         val cx = width / 2f
         val cy = height / 2f
         val r = dp(24f)
-        fill.color = if (on) OrbStyle.CHROME else Color.WHITE
-        ring.color = if (on) Color.WHITE else OrbStyle.CHROME_HAIRLINE
+        fill.color = if (on) Chrome.icon else Chrome.surface
+        Chrome.shade(fill, dp(6f), dp(2f))
+        ring.color = if (on) Chrome.surface else Chrome.hairline
         ring.strokeWidth = dp(if (on) 2f else 1f)
         canvas.drawCircle(cx, cy, r, fill)
         canvas.drawCircle(cx, cy, r - ring.strokeWidth / 2, ring)
         val s = dp(24f)
+        icon.setTint(if (on) Chrome.surface else Chrome.icon)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
         badge?.let { b ->
             val bx = badgeX()
             val by = badgeY()
+            badgeFill.color = Chrome.surface
+            Chrome.shade(badgeFill, dp(4f), dp(1.5f))
+            badgeRing.color = Chrome.hairline
             canvas.drawCircle(bx, by, dp(13f), badgeFill)
             canvas.drawCircle(bx, by, dp(13f) - dp(0.5f), badgeRing)
             val bs = dp(15f)
+            b.setTint(Chrome.icon)
             b.setBounds((bx - bs / 2).toInt(), (by - bs / 2).toInt(), (bx + bs / 2).toInt(), (by + bs / 2).toInt())
             b.draw(canvas)
         }
@@ -96,19 +101,24 @@ internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : 
     }
 }
 
-/** The clear-all button: hold it and a red ring fills up; when it closes, the board clears. */
+/**
+ * The clear-all button, in the [Chrome] material like the rest: red appears only while it is
+ * held, when the icon turns red, the button swells a little and a red ring fills up; when it
+ * closes, the board clears.
+ */
 @SuppressLint("ViewConstructor")
 internal class TrashView(context: Context) : View(context) {
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(6f), 0f, dp(2f), OrbStyle.SHADOW) }
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f); color = OrbStyle.DANGER }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(3.5f)
         strokeCap = Paint.Cap.ROUND
         color = OrbStyle.DANGER
     }
-    private val icon = ContextCompat.getDrawable(context, R.drawable.ic_trash)!!.mutate().apply { setTint(OrbStyle.DANGER) }
+    private val icon = ContextCompat.getDrawable(context, R.drawable.ic_trash)!!.mutate()
     private var progress = 0f
+    private var holding = false
     private val arc = RectF()
     private var animator: ValueAnimator? = null
 
@@ -121,6 +131,10 @@ internal class TrashView(context: Context) : View(context) {
     /** Starts (or cancels) the fill-up that mirrors a press-and-hold of [ms]. */
     fun hold(holding: Boolean, ms: Long) {
         animator?.cancel()
+        this.holding = holding
+        val scale = if (holding) HELD_SCALE else 1f
+        animate().scaleX(scale).scaleY(scale).setDuration(if (holding) 160 else 220)
+            .setInterpolator(android.view.animation.OvershootInterpolator(2f)).start()
         if (!holding) {
             progress = 0f
             invalidate()
@@ -141,9 +155,13 @@ internal class TrashView(context: Context) : View(context) {
         val cx = width / 2f
         val cy = height / 2f
         val r = dp(16f)
+        fill.color = Chrome.surface
+        Chrome.shade(fill, dp(6f), dp(2f))
+        ring.color = Chrome.hairline
         canvas.drawCircle(cx, cy, r, fill)
-        canvas.drawCircle(cx, cy, r - dp(1f), ring)
+        canvas.drawCircle(cx, cy, r - dp(0.5f), ring)
         val s = dp(18f)
+        icon.setTint(if (holding) OrbStyle.DANGER else Chrome.icon)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
         if (progress > 0f) {
@@ -154,6 +172,10 @@ internal class TrashView(context: Context) : View(context) {
     }
 
     override fun performClick(): Boolean = super.performClick()
+
+    private companion object {
+        const val HELD_SCALE = 1.12f
+    }
 }
 
 /**
@@ -523,15 +545,13 @@ internal class PaperPickerView(
     private val boardH = dp(BOARD_H_DP)
     private val boardText = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(14f)
-        color = OrbStyle.INK
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val boardHint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(11.5f)
-        color = 0xFF6B7280.toInt()
     }
     private val myBoards = context.getString(R.string.my_boards)
-    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.CHROME_HAIRLINE; strokeWidth = dp(1f) }
+    private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1f) }
 
     /** The board on the whiteboard, shown on top of the open card. */
     var boardName = ""
@@ -546,23 +566,22 @@ internal class PaperPickerView(
     private val cellH = dp(CELL_H_DP)
     private val colorsH = dp(COLORS_H_DP)
     private val pad = dp(PAD_DP)
-    private val card = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(8f), 0f, dp(3f), OrbStyle.SHADOW) }
-    private val chosenFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ColorUtils.setAlphaComponent(OrbStyle.CHROME, 0x14) }
+    private val card = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val cardEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
+    private val chosenFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheet = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sheetEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.5f); color = 0x40000000 }
-    private val chosenEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f); color = OrbStyle.CHROME }
+    private val sheetEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.5f) }
+    private val chosenEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f) }
     private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1.3f); strokeCap = Paint.Cap.ROUND }
-    private val swatchEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x40000000 }
+    private val swatchEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val chevron = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2.5f)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = OrbStyle.CHROME
     }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(11.5f)
-        color = OrbStyle.LABEL
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         textAlign = Paint.Align.CENTER
     }
@@ -605,21 +624,34 @@ internal class PaperPickerView(
         if (expanded) {
             setMeasuredDimension((cellW * COLUMNS + 2 * pad).toInt(), (boardH + colorsH + cellH * rows + 2 * pad).toInt())
         } else {
-            setMeasuredDimension((cellW + 2 * pad).toInt(), (cellH + 2 * pad).toInt())
+            val side = (dp(COMPACT_DP) + 2 * pad).toInt()
+            setMeasuredDimension(side, side)
         }
     }
 
     override fun onDraw(canvas: Canvas) {
         r.set(pad, pad, width - pad, height - pad)
-        canvas.drawRoundRect(r, dp(16f), dp(16f), card)
+        card.color = Chrome.surface
+        Chrome.shade(card, dp(8f), dp(3f))
+        // Closed it is a round button like the others; open, a card.
+        val corner = if (expanded) dp(16f) else dp(COMPACT_DP) / 2
+        canvas.drawRoundRect(r, corner, corner, card)
+        cardEdge.color = Chrome.hairline
+        r.inset(dp(0.5f), dp(0.5f))
+        canvas.drawRoundRect(r, corner - dp(0.5f), corner - dp(0.5f), cardEdge)
+        boardText.color = Chrome.text
+        boardHint.color = Chrome.hint
+        rule.color = Chrome.hairline
+        chosenFill.color = Chrome.pressed
+        // A sheet's edge shows on either card: dark on white, light on graphite.
+        sheetEdge.color = ColorUtils.blendARGB(0x40000000, 0x40FFFFFF, Chrome.dark)
+        swatchEdge.color = sheetEdge.color
+        chosenEdge.color = Chrome.icon
+        chevron.color = Chrome.icon
+        text.color = Chrome.text
         if (!expanded) {
-            drawCell(canvas, paper, pad, pad, chosen = false)
-            // "Opens upwards".
-            val cx = width - pad - dp(12f)
-            val cy = pad + dp(12f)
-            val a = dp(5f)
-            canvas.drawLine(cx - a, cy + a / 2, cx, cy - a / 2, chevron)
-            canvas.drawLine(cx, cy - a / 2, cx + a, cy + a / 2, chevron)
+            // Only the paper's own pattern: the name would take room on the board for nothing.
+            drawSheet(canvas, paper, width / 2f, height / 2f, dp(COMPACT_SHEET_DP), chosen = false)
             return
         }
         // The board on the whiteboard, and the way to the others.
@@ -658,11 +690,16 @@ internal class PaperPickerView(
             r.set(left + dp(4f), top + dp(4f), left + cellW - dp(4f), top + cellH - dp(4f))
             canvas.drawRoundRect(r, dp(12f), dp(12f), chosenFill)
         }
-        // A little sheet of that paper, in the paper's colour.
         val s = dp(26f)
         val cx = left + cellW / 2
         val sheetTop = top + dp(9f)
-        r.set(cx - s / 2, sheetTop, cx + s / 2, sheetTop + s)
+        drawSheet(canvas, p, cx, sheetTop + s / 2, s, chosen)
+        canvas.drawText(names[p.ordinal], cx, sheetTop + s + dp(17f), text)
+    }
+
+    /** A little sheet of paper [p], [s] wide, in the paper's colour, centred on ([cx], [cy]). */
+    private fun drawSheet(canvas: Canvas, p: Paper, cx: Float, cy: Float, s: Float, chosen: Boolean) {
+        r.set(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2)
         sheet.color = paperColor.background
         canvas.drawRoundRect(r, dp(4f), dp(4f), sheet)
         mark.color = if (paperColor.dark) 0xB3FFFFFF.toInt() else 0x991F2329.toInt()
@@ -684,7 +721,6 @@ internal class PaperPickerView(
             }
         }
         canvas.drawRoundRect(r, dp(4f), dp(4f), if (chosen) chosenEdge else sheetEdge)
-        canvas.drawText(names[p.ordinal], cx, sheetTop + s + dp(17f), text)
     }
 
     override fun dispatchTouchEvent(e: android.view.MotionEvent): Boolean {
@@ -732,6 +768,8 @@ internal class PaperPickerView(
 
     private companion object {
         const val CELL_W_DP = 84f
+        const val COMPACT_DP = 44f // closed: a round button, like the whiteboard's
+        const val COMPACT_SHEET_DP = 22f
         const val CELL_H_DP = 64f
         const val COLORS_H_DP = 44f
         const val BOARD_H_DP = 56f
@@ -745,7 +783,8 @@ internal class PaperPickerView(
 /**
  * Marcar Pro's own short messages ("Writing", "Undone"…), in a dark pill at the bottom centre.
  * Android's toasts can't be relied on: on the panel they are hidden when the app's notifications
- * are off. Never takes a touch.
+ * are off. Takes no touch, except a message with an action ("Board cleared · Undo"): then the
+ * whole pill is the button, for a few seconds ([onActionShown] lets the window take touches).
  */
 @SuppressLint("ViewConstructor")
 internal class HintView(context: Context) : TextView(context) {
@@ -769,23 +808,53 @@ internal class HintView(context: Context) : TextView(context) {
     }
 
     private var shown = false
+    private var action: (() -> Unit)? = null
+
+    /** Called with true when a message with an action shows, false when it goes. */
+    var onActionShown: ((Boolean) -> Unit)? = null
+
     private val hide = Runnable {
         shown = false
-        animate().alpha(0f).setDuration(220).withEndAction { if (!shown) visibility = GONE }.start()
+        setAction(null)
+        animate().alpha(0f).translationY(dp(12f)).setDuration(220).withEndAction { if (!shown) visibility = GONE }.start()
     }
 
-    fun show(message: CharSequence, long: Boolean) {
+    fun show(message: CharSequence, long: Boolean, actionLabel: CharSequence? = null, onAction: (() -> Unit)? = null) {
         removeCallbacks(hide)
+        if (!shown) translationY = dp(12f)
         shown = true
-        text = message
+        text = if (actionLabel == null) message else android.text.SpannableStringBuilder(message).apply {
+            append("   ")
+            val start = length
+            append(actionLabel)
+            setSpan(android.text.style.StyleSpan(Typeface.BOLD), start, length, 0)
+            setSpan(android.text.style.ForegroundColorSpan(ACTION_COLOR), start, length, 0)
+        }
+        setAction(if (actionLabel == null) null else onAction)
         visibility = VISIBLE
-        animate().alpha(1f).setDuration(140).start()
-        postDelayed(hide, if (long) LONG_MS else SHORT_MS)
+        animate().alpha(1f).translationY(0f).setDuration(220)
+            .setInterpolator(android.view.animation.PathInterpolator(0.22f, 0.9f, 0.24f, 1f)).start()
+        postDelayed(hide, if (action != null) ACTION_MS else if (long) LONG_MS else SHORT_MS)
+    }
+
+    private fun setAction(a: (() -> Unit)?) {
+        val had = action != null
+        action = a
+        if (a == null) setOnClickListener(null) else setOnClickListener {
+            val run = action
+            removeCallbacks(hide)
+            hide.run()
+            run?.invoke()
+        }
+        isClickable = a != null
+        if (had != (a != null)) onActionShown?.invoke(a != null)
     }
 
     private companion object {
         const val SHORT_MS = 2200L
         const val LONG_MS = 4500L
+        const val ACTION_MS = 6000L
+        const val ACTION_COLOR = 0xFFAFC2FF.toInt()
     }
 }
 

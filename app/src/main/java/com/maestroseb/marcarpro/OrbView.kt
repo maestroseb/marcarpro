@@ -45,6 +45,32 @@ internal object OrbStyle {
     const val CHROME_HAIRLINE = 0x332C3138
 }
 
+/**
+ * The one material of the controls that aren't the orb (1.6, "paper and graphite"): white with a
+ * fine graphite edge and a soft shadow, the icon in graphite. On dark paper (chalkboard, black) it
+ * turns over: graphite with a light icon, so white buttons don't glare on a dark board. [dark] goes
+ * from 0 to 1 in a short fade; views read the colours below as they draw.
+ */
+internal object Chrome {
+    var dark = 0f
+
+    private const val SURFACE_DARK = 0xFF2C3138.toInt()
+    private const val ICON_DARK = 0xFFF2F2EC.toInt()
+
+    val surface get() = mix(Color.WHITE, SURFACE_DARK)
+    val icon get() = mix(OrbStyle.CHROME, ICON_DARK)
+    val text get() = mix(OrbStyle.INK, ICON_DARK)
+    val hint get() = mix(0xFF6B7280.toInt(), 0xFFAEB4BD.toInt())
+    val hairline get() = mix(OrbStyle.CHROME_HAIRLINE, 0x2EFFFFFF)
+    val shadow get() = mix(OrbStyle.SHADOW, 0x66000000)
+    val pressed get() = ColorUtils.setAlphaComponent(icon, 0x1A)
+
+    /** The same soft shadow on every control. */
+    fun shade(paint: Paint, radius: Float, dy: Float) = paint.setShadowLayer(radius, 0f, dy, shadow)
+
+    private fun mix(light: Int, darkColor: Int) = if (dark <= 0f) light else ColorUtils.blendARGB(light, darkColor, dark)
+}
+
 /** Ring items that switch something on and off instead of picking a tool. */
 internal enum class RingToggle { HIDE, PUPILS, LASSO }
 

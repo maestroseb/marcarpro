@@ -82,7 +82,8 @@
     <string name="palette_size">Tamaño</string>
     <string name="clear_hold">Mantén pulsado para borrar la pizarra</string>
     <string name="closed_saved">Marcar Pro cerrado · tu tinta seguirá aquí la próxima vez</string>
-    <string name="board_cleared">Pizarra borrada · mantén pulsado el icono principal para deshacer</string>
+    <string name="board_cleared">Pizarra borrada</string>
+    <string name="undo">Deshacer</string>
     <string name="nothing_to_clear">No hay nada que borrar</string>
     <string name="undo_done">Deshecho</string>
     <string name="nothing_to_undo">No hay nada que deshacer</string>

@@ -113,10 +113,10 @@ internal class InkLayer(private val drawInk: (Canvas, Stroke) -> Unit) {
     }
 
     /** Draws the tiles that hold ink. */
-    fun draw(canvas: Canvas) {
+    fun draw(canvas: Canvas, paint: android.graphics.Paint? = null) {
         for (t in tiles) {
             val b = t.bitmap ?: continue
-            canvas.drawBitmap(b, t.left.toFloat(), t.top.toFloat(), null)
+            canvas.drawBitmap(b, t.left.toFloat(), t.top.toFloat(), paint)
         }
     }
 
