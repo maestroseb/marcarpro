@@ -395,7 +395,10 @@ class OverlayService : Service() {
                     orb.downOnBadge && whiteboard && !paused -> togglePupils()
                     orb.downOnBadge || paused -> togglePause()
                     // Pupils writing: the orb brings the teacher's pen back, like after the cursor.
-                    orb.pupilsBadge && orb.pupilsOn -> togglePupils()
+                    orb.pupilsBadge && orb.pupilsOn -> {
+                        closeRing()
+                        togglePupils()
+                    }
                     colors.isOpen -> closeColors()
                     orb.downOnDot -> openColors()
                     else -> toggleRing()
