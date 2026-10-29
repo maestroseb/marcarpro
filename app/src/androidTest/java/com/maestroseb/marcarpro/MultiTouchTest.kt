@@ -39,6 +39,10 @@ class MultiTouchTest {
     private val stylusSeen = prefs.stylusSeen
     private val whiteboard = File(context.filesDir, PageKeys.fileName(PageKeys.WHITEBOARD))
     private val keptWhiteboard = File(context.cacheDir, "whiteboard.before-test")
+    // The whiteboard tests write the quick board's first page: that is the page that must open.
+    private val currentBoard = prefs.currentBoard
+    private val quickPage = prefs.quickPage
+    private val quickDay = prefs.quickDay
 
     @Before
     fun freshLayer() {
@@ -49,6 +53,9 @@ class MultiTouchTest {
         if (whiteboard.exists()) whiteboard.renameTo(keptWhiteboard)
         // The orb at the right edge, out of the way of the gestures (a manual test may have moved it).
         prefs.savePosition("orb", 1860, 420)
+        prefs.currentBoard = null
+        prefs.quickPage = 0
+        prefs.quickDay = 0 // today: the quick board doesn't empty itself mid-test
     }
 
     @After
@@ -60,6 +67,9 @@ class MultiTouchTest {
         if (keptWhiteboard.exists()) keptWhiteboard.renameTo(whiteboard)
         prefs.fingerMode = fingerMode
         prefs.stylusSeen = stylusSeen
+        prefs.currentBoard = currentBoard
+        prefs.quickPage = quickPage
+        prefs.quickDay = quickDay
     }
 
     private fun stopLayer() {

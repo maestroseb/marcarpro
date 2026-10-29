@@ -354,7 +354,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
 }
 
 /**
- * The whiteboard's pages, in the top left corner: "‹ 2 / 3 › +". The arrows turn the page, the
+ * The whiteboard's pages, fixed in the top right corner: "‹ 2 / 3 › +". The arrows turn the page, the
  * plus adds one at the end. Turning past the first or the last page does nothing (the arrow is
  * faded there). Graphite on white.
  */

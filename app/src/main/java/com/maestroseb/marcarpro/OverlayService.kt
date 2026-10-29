@@ -86,6 +86,13 @@ class OverlayService : Service() {
         private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
         private const val QUICK_DISTANCE_DP = 62f
+        // The clear-all button's first place (its centre, from the top right corner), and the page
+        // pill under it: its card's right edge lines up with the button's (40 − 16 = 24 dp).
+        private const val TRASH_RIGHT_DP = 40f
+        private const val TRASH_TOP_DP = 100f
+        // A new key since 1.5.0: the clear-all button's old spot, top right, is now the page pill's.
+        private const val TRASH_POSITION = "clearAll"
+        private const val PILL_EDGE_DP = 24f
         // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
         // 30° apart, 32 dp between centres, as wide as each dot's window.
         private val QUICK_ANGLES_RIGHT = doubleArrayOf(15.0, 45.0, 75.0)
@@ -305,14 +312,14 @@ class OverlayService : Service() {
         val trash = TrashView(this)
         val trashF = Floater(wm, trash, dpi(52f), core = dpi(20f))
         trashFloater = trashF
-        trashF.attach(prefs.position("trash", Point(screen.x - dpi(40f), dpi(56f))))
+        trashF.attach(prefs.position(TRASH_POSITION, Point(screen.x - dpi(TRASH_RIGHT_DP), dpi(TRASH_TOP_DP))))
         reserve(PanelTouch.AREA_TRASH, trashF)
         trash.setOnTouchListener(FloatGestures(trashF, CLEAR_HOLD_MS,
             onTap = { toast(R.string.clear_hold) },
             onLongPress = ::clearAll,
             onPressChanged = { pressing -> trash.hold(pressing, CLEAR_HOLD_MS) },
             onDragEnd = { x, y, _ ->
-                prefs.savePosition("trash", x, y)
+                prefs.savePosition(TRASH_POSITION, x, y)
                 reserve(PanelTouch.AREA_TRASH, trashF)
             },
         ))
@@ -1210,11 +1217,26 @@ class OverlayService : Service() {
         }
         updatePagePill()
         v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        // Top left corner, its card as far from the edges as the canvas settings' (18 dp).
-        pillParams.x = dpi(10f)
-        pillParams.y = dpi(10f)
         wm.addView(v, pillParams)
-        panel?.setArea(PanelTouch.AREA_PAGES, Rect(pillParams.x, pillParams.y, pillParams.x + v.measuredWidth, pillParams.y + v.measuredHeight))
+        placePagePill()
+    }
+
+    /**
+     * The page pill stays in the top right corner, away from the date and heading teachers write on
+     * the left; the clear-all button starts just under it and can be moved anywhere.
+     */
+    private fun placePagePill() {
+        val v = pagePill ?: return
+        if (!pillShown) return
+        val screen = wm.screenSize()
+        val w = v.measuredWidth
+        val h = v.measuredHeight
+        val m = dpi(8f) // the pill's shadow margin round its card
+        val edge = dpi(PILL_EDGE_DP)
+        pillParams.x = screen.x - edge - w + m
+        pillParams.y = edge - m
+        runCatching { wm.updateViewLayout(v, pillParams) }
+        panel?.setArea(PanelTouch.AREA_PAGES, Rect(pillParams.x, pillParams.y, pillParams.x + w, pillParams.y + h))
     }
 
     private fun updatePagePill() {
