@@ -354,7 +354,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
 }
 
 /**
- * The whiteboard's pages, at the bottom centre: "‹  2 / 3  ›  +". The arrows turn the page, the
+ * The whiteboard's pages, in the top left corner: "‹ 2 / 3 › +". The arrows turn the page, the
  * plus adds one at the end. Turning past the first or the last page does nothing (the arrow is
  * faded there). Graphite on white.
  */
@@ -370,7 +370,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         color = OrbStyle.CHROME
     }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = context.sp(16f)
+        textSize = context.sp(14.5f)
         color = OrbStyle.INK
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         textAlign = Paint.Align.CENTER
@@ -430,10 +430,10 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         canvas.drawRoundRect(r, h / 2, h / 2, card)
         if (pressed in listOf(0, 2, 3)) {
             val x = left(pressed)
-            canvas.drawCircle(x + cell / 2, margin + h / 2, h / 2 - dp(4f), pressFill)
+            canvas.drawCircle(x + cell / 2, margin + h / 2, h / 2 - dp(5f), pressFill)
         }
         val cy = margin + h / 2
-        val a = dp(5.5f)
+        val a = dp(4.5f)
         // ‹
         glyph.alpha = if (page > 0) 255 else 70
         var cx = left(0) + cell / 2 + dp(2f)
@@ -447,7 +447,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         // + after a hairline: it changes the board, the arrows only look through it.
         glyph.alpha = 255
         val sep = left(3)
-        canvas.drawLine(sep, cy - dp(11f), sep, cy + dp(11f), divider)
+        canvas.drawLine(sep, cy - dp(10f), sep, cy + dp(10f), divider)
         cx = sep + cell / 2
         canvas.drawLine(cx - a, cy, cx + a, cy, glyph)
         canvas.drawLine(cx, cy - a, cx, cy + a, glyph)
@@ -475,8 +475,8 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
     }
 
     private companion object {
-        const val HEIGHT_DP = 48f
-        const val CELL_DP = 48f
-        const val MIDDLE_DP = 70f
+        const val HEIGHT_DP = 44f
+        const val CELL_DP = 40f
+        const val MIDDLE_DP = 52f
     }
 }

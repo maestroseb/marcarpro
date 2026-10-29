@@ -76,7 +76,7 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
   writes). Thumbnails (`AnnotationView.thumbnail`, all the ink fitted, pen lines given a 1.4 px outline) are
   `thumb_<id>.png`, taken when leaving a board, opening the list or closing the whiteboard. UI: "My boards"
   row on top of the paper picker card → `BoardListView` card (fixed 380 dp, bottom left; bin view with
-  restore); `PagePillView` "‹ 2/3 › +" at the bottom centre while the whiteboard is open; turning back from
+  restore); `PagePillView` "‹ 2/3 › +" (compact, 44 dp) in the top left corner while the whiteboard is open; turning back from
   an empty last page drops it. Panel touch areas `AREA_BOARDS` 7711, `AREA_PAGES` 7712.
 - **Saving:** only boards that changed are written (`changed`), through `AtomicFile` (synced: the panel
   is often switched off at the wall); a board left empty deletes its file. Saved ink is read and decoded

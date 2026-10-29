@@ -145,7 +145,7 @@ class OverlayService : Service() {
         WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
         WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT,
     ).apply {
-        gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        gravity = Gravity.TOP or Gravity.START
         title = "Marcar Pro pages"
     }
     private var cropView: CropView? = null
@@ -1209,13 +1209,12 @@ class OverlayService : Service() {
             return
         }
         updatePagePill()
-        pillParams.y = dpi(4f)
-        wm.addView(v, pillParams)
         v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        val screen = wm.screenSize()
-        val w = v.measuredWidth
-        val h = v.measuredHeight
-        panel?.setArea(PanelTouch.AREA_PAGES, Rect((screen.x - w) / 2, screen.y - pillParams.y - h, (screen.x + w) / 2, screen.y - pillParams.y))
+        // Top left corner, its card as far from the edges as the canvas settings' (18 dp).
+        pillParams.x = dpi(10f)
+        pillParams.y = dpi(10f)
+        wm.addView(v, pillParams)
+        panel?.setArea(PanelTouch.AREA_PAGES, Rect(pillParams.x, pillParams.y, pillParams.x + v.measuredWidth, pillParams.y + v.measuredHeight))
     }
 
     private fun updatePagePill() {
