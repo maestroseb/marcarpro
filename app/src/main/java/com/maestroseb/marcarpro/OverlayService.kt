@@ -394,6 +394,8 @@ class OverlayService : Service() {
                     // On the whiteboard the badge is "Pupils" (its screen button goes back to the screen).
                     orb.downOnBadge && whiteboard && !paused -> togglePupils()
                     orb.downOnBadge || paused -> togglePause()
+                    // Pupils writing: the orb brings the teacher's pen back, like after the cursor.
+                    orb.pupilsBadge && orb.pupilsOn -> togglePupils()
                     colors.isOpen -> closeColors()
                     orb.downOnDot -> openColors()
                     else -> toggleRing()
@@ -2027,6 +2029,7 @@ class OverlayService : Service() {
                 tint = orbTint(ink.tool)
             }
             o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE)
+            o.away = if (whiteboard && !paused) setOf(RingToggle.PUPILS.name) else emptySet()
         }
         updateQuick()
     }

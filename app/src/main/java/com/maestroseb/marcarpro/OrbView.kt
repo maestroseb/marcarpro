@@ -111,7 +111,7 @@ internal class OrbitLayout(
     // The teacher's order (tools added by a later version go at the end) and the tools left out.
     private val order = (order.filter { it in byKey } + byKey.keys.filter { it !in order }).toMutableList()
     private val hidden = hidden.filter { it in byKey && it != Tool.PEN.name }.toMutableSet()
-    private val satSize = dpi(56f)
+    private val satSize = dpi(SatelliteView.SIZE_DP)
     private val orbitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1.5f)
@@ -122,7 +122,7 @@ internal class OrbitLayout(
     private var orbitVisible = false
 
     /** Distance from the orb centre to each satellite centre. */
-    val radius = dp(118f)
+    val radius = dp(104f)
 
     /** Near an edge the tools fan out on a wider arc of this radius instead of a full ring. */
     private val fanRadius = max(radius, (items.size - 1) * satSize * 1.3f / FAN_SPAN.toFloat())
@@ -204,7 +204,10 @@ internal class OrbitLayout(
     }
 
     /** The tools in the ring now: all of them while editing, else the ones not taken out. */
-    private fun shown(): List<SatelliteView> = order.filter { editing || it !in hidden }.map { byKey.getValue(it) }
+    private fun shown(): List<SatelliteView> = order.filter { editing || (it !in hidden && it !in away) }.map { byKey.getValue(it) }
+
+    /** Tools that are somewhere else just now (on the whiteboard, "Pupils" is the orb's badge). */
+    var away: Set<String> = emptySet()
 
     /**
      * Opens the ring around the orb, whose centre is at ([cx], [cy]) on a [sw]×[sh] screen.
@@ -678,7 +681,7 @@ internal class OrbButton(context: Context) : View(context) {
  */
 @SuppressLint("ViewConstructor")
 internal class SatelliteView(context: Context, val item: RingItem) : View(context) {
-    private val size = dp(56f)
+    private val size = dp(SIZE_DP)
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = context.sp(12f)
@@ -765,8 +768,10 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
 
     override fun performClick(): Boolean = super.performClick()
 
-    private companion object {
-        /** The icon on the 56 dp disc. */
-        const val ICON_DP = 31f
+    companion object {
+        /** The disc, smaller than the orb's 68 dp so the ring sits close around it (1.6). */
+        const val SIZE_DP = 46f
+        /** The icon on that disc. */
+        const val ICON_DP = 26f
     }
 }
