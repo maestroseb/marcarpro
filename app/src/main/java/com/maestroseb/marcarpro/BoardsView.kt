@@ -61,18 +61,22 @@ internal fun drawPaperSheet(canvas: Canvas, r: RectF, p: Paper, color: PaperColo
     }
 }
 
-/** A white card with rounded corners and a soft shadow, [margin] inside its bounds for the shadow. */
+/** A card in the [Chrome] material with rounded corners and a soft shadow, [margin] inside its bounds for the shadow. */
 internal class CardBackground(context: Context, private val margin: Float, private val corner: Float) : android.graphics.drawable.Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        setShadowLayer(context.dp(10f), 0f, context.dp(3f), OrbStyle.SHADOW)
-    }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = context.dp(1f) }
+    private val radius = context.dp(10f)
+    private val dy = context.dp(3f)
     private val r = RectF()
 
     override fun draw(canvas: Canvas) {
         r.set(bounds)
         r.inset(margin, margin)
+        paint.color = Chrome.surface
+        Chrome.shade(paint, radius, dy)
         canvas.drawRoundRect(r, corner, corner, paint)
+        edge.color = Chrome.hairline
+        canvas.drawRoundRect(r, corner, corner, edge)
     }
 
     override fun setAlpha(alpha: Int) = Unit
@@ -84,7 +88,7 @@ internal class CardBackground(context: Context, private val margin: Float, priva
 /**
  * "My boards": a card over the paper picker with the quick board, the saved ones (pinned first,
  * then the most recently opened) and the bin. Each saved board has a pin and a bin button; a tap
- * on a row opens that board. Graphite on white, like every control that isn't the orb.
+ * on a row opens that board. In the [Chrome] material: graphite on white, or the other way round on dark paper.
  */
 @SuppressLint("ViewConstructor")
 internal class BoardListView(context: Context, private val listener: Listener) : LinearLayout(context) {
@@ -103,13 +107,11 @@ internal class BoardListView(context: Context, private val listener: Listener) :
     }
 
     private val margin = dp(MARGIN_DP)
-    private val title = text(17f, OrbStyle.INK, bold = true)
-    private val binButton = text(14f, OrbStyle.CHROME, bold = true).apply {
+    private val title = text(17f, Chrome.text, bold = true)
+    private val binEdge = GradientDrawable().apply { cornerRadius = dp(16f) }
+    private val binButton = text(14f, Chrome.icon, bold = true).apply {
         setPadding(dpi(12f), dpi(7f), dpi(12f), dpi(7f))
-        background = GradientDrawable().apply {
-            cornerRadius = dp(16f)
-            setStroke(dpi(1f), OrbStyle.CHROME_HAIRLINE)
-        }
+        background = binEdge
         isClickable = true
         setOnClickListener {
             inBin = !inBin
@@ -126,16 +128,14 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         overScrollMode = OVER_SCROLL_NEVER
         addView(rows)
     }
-    private val action = text(15f, Color.WHITE, bold = true).apply {
+    private val actionFill = GradientDrawable().apply { cornerRadius = dp(22f) }
+    private val action = text(15f, Chrome.surface, bold = true).apply {
         gravity = Gravity.CENTER
         setPadding(dpi(16f), dpi(12f), dpi(16f), dpi(12f))
-        background = GradientDrawable().apply {
-            setColor(OrbStyle.CHROME)
-            cornerRadius = dp(22f)
-        }
+        background = actionFill
         isClickable = true
     }
-    private val rule = text(12.5f, MUTED).apply { setLineSpacing(0f, 1.25f) }
+    private val rule = text(12.5f, Chrome.hint).apply { setLineSpacing(0f, 1.25f) }
 
     private var boards: Boards? = null
     private var quickHasInk = false
@@ -164,8 +164,20 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         scroll.scrollTo(0, 0)
     }
 
+    /** Takes the [Chrome] colours again (the paper turned dark or light); the rows are rebuilt by [show]. */
+    fun applyChrome() {
+        title.setTextColor(Chrome.text)
+        binButton.setTextColor(Chrome.icon)
+        binEdge.setStroke(dpi(1f), Chrome.hairline)
+        actionFill.setColor(Chrome.icon)
+        action.setTextColor(Chrome.surface)
+        rule.setTextColor(Chrome.hint)
+        invalidate()
+    }
+
     /** Fills the card in from [b]: called on every change, it is only a few rows. */
     fun show(b: Boards, quickHasInk: Boolean) {
+        applyChrome()
         boards = b
         this.quickHasInk = quickHasInk
         rows.removeAllViews()
@@ -180,7 +192,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         }
         if (inBin) {
             if (bin.isEmpty()) {
-                rows.addView(text(14f, MUTED).apply {
+                rows.addView(text(14f, Chrome.hint).apply {
                     text = context.getString(R.string.boards_bin_empty)
                     setPadding(dpi(8f), dpi(14f), dpi(8f), dpi(14f))
                 })
@@ -244,7 +256,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         setPadding(dpi(8f), dpi(8f), dpi(4f), dpi(8f))
         background = GradientDrawable().apply {
             cornerRadius = dp(12f)
-            setColor(if (chosen) ColorUtils.setAlphaComponent(OrbStyle.CHROME, 0x14) else Color.TRANSPARENT)
+            setColor(if (chosen) Chrome.pressed else Color.TRANSPARENT)
         }
         if (onTap != null) {
             isClickable = true
@@ -253,26 +265,26 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         addView(Thumb(context, paper, color, thumb), LayoutParams(dpi(THUMB_W_DP), dpi(THUMB_H_DP)))
         addView(LinearLayout(context).apply {
             orientation = VERTICAL
-            addView(text(15f, OrbStyle.INK, bold = true).apply {
+            addView(text(15f, Chrome.text, bold = true).apply {
                 text = name
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             })
-            addView(text(12.5f, if (warn) WARN else MUTED).apply {
+            addView(text(12.5f, if (warn) warnColor() else Chrome.hint).apply {
                 text = meta
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             })
         }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dpi(12f) })
         for (i in icons) addView(ImageView(context).apply {
-            setImageDrawable(ContextCompat.getDrawable(context, i.res)!!.mutate().apply { setTint(if (i.on) OrbStyle.CHROME else IDLE_ICON) })
+            setImageDrawable(ContextCompat.getDrawable(context, i.res)!!.mutate().apply { setTint(if (i.on) Chrome.icon else ColorUtils.setAlphaComponent(Chrome.icon, 0x8C)) })
             contentDescription = context.getString(i.label)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dpi(9f), dpi(9f), dpi(9f), dpi(9f))
             isClickable = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(if (i.on) ColorUtils.setAlphaComponent(OrbStyle.CHROME, 0x14) else Color.TRANSPARENT)
+                setColor(if (i.on) Chrome.pressed else Color.TRANSPARENT)
             }
             setOnClickListener { i.onTap() }
         }, LayoutParams(dpi(40f), dpi(40f)))
@@ -285,7 +297,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         private val sheet = Paint(Paint.ANTI_ALIAS_FLAG)
         private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1f); strokeCap = Paint.Cap.ROUND }
         private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x33000000 }
-        private val bolt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.CHROME }
+        private val bolt = Paint(Paint.ANTI_ALIAS_FLAG)
         private val path = android.graphics.Path()
         private val r = RectF()
 
@@ -293,8 +305,9 @@ internal class BoardListView(context: Context, private val listener: Listener) :
             r.set(0.5f, 0.5f, width - 0.5f, height - 0.5f)
             val corner = dp(6f)
             if (paper == null || color == null) {
-                sheet.color = 0xFFF3F4F5.toInt()
+                sheet.color = Chrome.pressed
                 canvas.drawRoundRect(r, corner, corner, sheet)
+                bolt.color = Chrome.icon
                 // A lightning bolt: the board for right now.
                 val cx = width / 2f
                 val cy = height / 2f
@@ -318,6 +331,7 @@ internal class BoardListView(context: Context, private val listener: Listener) :
             } else {
                 drawPaperSheet(canvas, r, paper, color, sheet, mark, corner)
             }
+            edge.color = Chrome.hairline
             canvas.drawRoundRect(r, corner, corner, edge)
         }
     }
@@ -344,9 +358,10 @@ internal class BoardListView(context: Context, private val listener: Listener) :
         const val WIDTH_DP = 380f
         private const val MAX_LIST_DP = 330f
         private const val WARN_DAYS = 7
-        private const val MUTED = 0xFF6B7280.toInt()
-        private const val IDLE_ICON = 0xFF9AA0A8.toInt()
         private const val WARN = 0xFFB25E00.toInt() // amber that still reads on white
+        private const val WARN_DARK = 0xFFF5B25C.toInt() // and on graphite
+
+        private fun warnColor() = ColorUtils.blendARGB(WARN, WARN_DARK, Chrome.dark)
         private const val DAY_MS = 24L * 60 * 60 * 1000
 
         private fun daysSince(time: Long, now: Long) = ((now - time) / DAY_MS).coerceAtLeast(0)

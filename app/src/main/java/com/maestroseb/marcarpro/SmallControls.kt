@@ -283,16 +283,20 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
         class Eraser(val index: Int) : Pick
     }
 
+    private val card = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(18f) }
+
     init {
         orientation = VERTICAL
         val pad = dpi(14f)
         setPadding(pad, dpi(10f), pad, dpi(10f))
-        background = android.graphics.drawable.GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = dp(18f)
-            setStroke(dpi(1f), 0x0F000000)
-        }
+        background = card
         elevation = dp(10f)
+    }
+
+    /** The card in the [Chrome] material; the rows take it when [showFor] builds them. */
+    private fun applyChrome() {
+        card.setColor(Chrome.surface)
+        card.setStroke(dpi(1f), Chrome.hairline)
     }
 
     /** Opens the card on the picker, starting from [color] (the colours' "+"). */
@@ -307,6 +311,7 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
     }
 
     fun showFor(tool: Tool, color: Int, sizeIndex: Int, eraserIndex: Int, customs: List<Int>) {
+        applyChrome()
         removeAllViews()
         if (tool == Tool.ERASER) {
             addRow(context.getString(R.string.palette_size), Presets.ERASER_DP.indices.map { i ->
@@ -362,10 +367,10 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
             text = context.getString(R.string.custom_save)
             textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(Chrome.surface)
             typeface = Fonts.bold(context)
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(OrbStyle.CHROME)
+                setColor(Chrome.icon)
                 cornerRadius = dp(20f)
             }
             isClickable = true
@@ -385,7 +390,7 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
         row.addView(TextView(context).apply {
             text = title
             textSize = 14f
-            setTextColor(0xFF6B7280.toInt())
+            setTextColor(Chrome.hint)
             typeface = Fonts.bold(context)
         }, LayoutParams(dpi(LABEL_WIDTH_DP), LayoutParams.WRAP_CONTENT))
         for (s in swatches) row.addView(s, LayoutParams(dpi(SWATCH_DP), dpi(SWATCH_DP)))
@@ -503,6 +508,9 @@ internal class Swatch(
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
+        outline.color = Chrome.text
+        chosenPaint.color = Chrome.text
+        edge.color = Chrome.hairline
         if (plus) {
             // "Make a colour": a rainbow ring with a plus.
             canvas.drawCircle(cx, cy, r - dp(1.5f), rainbow)
@@ -513,7 +521,9 @@ internal class Swatch(
             canvas.drawCircle(cx, cy, r, outline)
         } else {
             canvas.drawCircle(cx, cy, r, fill)
-            if (ColorUtils.calculateLuminance(color) > 0.7) canvas.drawCircle(cx, cy, r, edge)
+            // An edge for the colour that would vanish on the card: white on white, black on graphite.
+            val light = ColorUtils.calculateLuminance(color)
+            if (if (Chrome.dark < 0.5f) light > 0.7 else light < 0.05) canvas.drawCircle(cx, cy, r, edge)
         }
         if (chosen) canvas.drawCircle(cx, cy, maxOf(r + dp(4f), dp(9f)), chosenPaint)
     }

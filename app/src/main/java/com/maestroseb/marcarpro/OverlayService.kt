@@ -1040,7 +1040,14 @@ class OverlayService : Service() {
             addUpdateListener {
                 Chrome.dark = it.animatedValue as Float
                 for (v in listOf(trashFloater?.view, whiteFloater?.view, pagePill, paperPicker)) v?.invalidate()
+                boardList?.applyChrome()
             }
+            // The list's rows take the colours when built: once, at the end.
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (boardsShown) refreshBoards()
+                }
+            })
             start()
         }
     }

@@ -30,7 +30,6 @@ import kotlin.math.sin
 internal object OrbStyle {
     const val TEAL = 0xFF3E8784.toInt()
     const val TEAL_DARK = 0xFF2D6E6B.toInt()
-    const val HALO = 0x593E8784
     const val INK = 0xFF1F2329.toInt()
     const val LABEL = 0xFF2C3138.toInt()
     const val DANGER = 0xFFC0392B.toInt()
@@ -157,7 +156,7 @@ internal class OrbitLayout(
     private var doneAngle = PI / 2
     private var doneDistance = DONE_RING_DP
     private val doneRect = RectF()
-    private val donePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.TEAL }
+    private val donePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.CHROME }
     private val doneText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = context.sp(14f)
@@ -524,11 +523,9 @@ internal class OrbitLayout(
 @SuppressLint("ViewConstructor")
 internal class OrbButton(context: Context) : View(context) {
     private var spring: PressSpring? = null
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = OrbStyle.TEAL
-        setShadowLayer(dp(10f), 0f, dp(4f), 0x47143232)
-    }
-    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.HALO }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.TEAL }
+    // A white rim and the controls' own shadow (1.6), instead of a coloured halo.
+    private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f) }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
     private val dotRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(5f), 0f, dp(2f), OrbStyle.SHADOW) }
@@ -541,13 +538,12 @@ internal class OrbButton(context: Context) : View(context) {
     var inkColor = Color.BLACK
         set(value) { if (field != value) { field = value; invalidate() } }
 
-    /** The active tool's colour (its ring item's tint): the disc and its halo take it. */
+    /** The active tool's colour (its ring item's tint): the disc takes it. */
     var tint = OrbStyle.TEAL
         set(value) {
             if (field == value) return
             field = value
             fill.color = value
-            halo.color = ColorUtils.setAlphaComponent(value, Color.alpha(OrbStyle.HALO))
             invalidate()
         }
     var sizeLevel = 1
@@ -611,8 +607,10 @@ internal class OrbButton(context: Context) : View(context) {
         // Fingers on the screen (cursor) or pupils writing with them: the pen steps back.
         val faded = using || (pupilsBadge && pupilsOn)
         val layer = if (faded) canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), 140) else -1
-        canvas.drawCircle(cx, cy, r + dp(7f), halo)
+        Chrome.shade(fill, dp(10f), dp(4f))
         canvas.drawCircle(cx, cy, r, fill)
+        rim.color = ColorUtils.blendARGB(Color.WHITE, 0xD9FFFFFF.toInt(), Chrome.dark)
+        canvas.drawCircle(cx, cy, r - rim.strokeWidth / 2, rim)
         icon?.let {
             val s = dp(ORB_ICON_DP)
             it.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
@@ -640,13 +638,15 @@ internal class OrbButton(context: Context) : View(context) {
             badgeHalo.color = ColorUtils.setAlphaComponent(tint, 0x66)
             canvas.drawCircle(bx, by, br + dp(5f), badgeHalo)
         }
-        badgeFill.color = if (lit) deep else Color.WHITE
+        // At rest it is made of the controls' material (graphite on a dark board), the icon in the tool's colour.
+        badgeFill.color = if (lit) deep else Chrome.surface
+        Chrome.shade(badgeFill, dp(5f), dp(2f))
         canvas.drawCircle(bx, by, br, badgeFill)
         badgeRing.strokeWidth = dp(if (lit) 2.5f else 1f)
-        badgeRing.color = if (lit) Color.WHITE else ColorUtils.setAlphaComponent(deep, 0x59)
+        badgeRing.color = if (lit) Color.WHITE else ColorUtils.blendARGB(ColorUtils.setAlphaComponent(deep, 0x59), Chrome.hairline, Chrome.dark)
         canvas.drawCircle(bx, by, br - badgeRing.strokeWidth / 2, badgeRing)
         val mark = if (pupilsBadge) pupilsIcon else cursor
-        mark.setTint(if (lit) Color.WHITE else deep)
+        mark.setTint(if (lit) Color.WHITE else ColorUtils.blendARGB(deep, ColorUtils.blendARGB(tint, Color.WHITE, 0.45f), Chrome.dark))
         val s = dp(if (pupilsBadge) 19f else 17f)
         mark.setBounds((bx - s / 2).toInt(), (by - s / 2).toInt(), (bx + s / 2).toInt(), (by + s / 2).toInt())
         mark.draw(canvas)
@@ -672,9 +672,9 @@ internal class OrbButton(context: Context) : View(context) {
 }
 
 /**
- * A tool button: a flat disc in a pastel of the tool's own colour (so each one is told apart at
- * a glance from the back of the class), and its name in a pill underneath. The chosen one turns
- * to the full colour with a white icon, a white rim, a halo and a pill of its colour.
+ * A tool button: a disc of the controls' material ([Chrome]) with a graphite icon, its name in a
+ * pill underneath. The chosen one turns to the tool's full colour with a white icon, a white rim
+ * and a pill of its colour: colour on the ring means "in hand".
  */
 @SuppressLint("ViewConstructor")
 internal class SatelliteView(context: Context, val item: RingItem) : View(context) {
@@ -686,13 +686,12 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
     }
     private val labelWidth = labelPaint.measureText(item.label)
     private val pillH = dp(20f)
-    private val disc = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(8f), 0f, dp(3f), OrbStyle.SHADOW) }
+    private val disc = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    // At rest a soft pastel of the tool's colour with the icon in its deep shade; chosen, the full colour.
-    private val pastel = ColorUtils.blendARGB(item.tint, Color.WHITE, 0.72f)
-    private val deep = ColorUtils.blendARGB(item.tint, Color.BLACK, 0.2f)
+    // At rest the controls' material (1.6: white, a hairline, a graphite icon); chosen, the tool's
+    // full colour with a white rim, as the orb then wears it.
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val chosenRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(3f); color = Color.WHITE }
-    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ColorUtils.setAlphaComponent(item.tint, 0x4D) }
     private val pill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val icon = ContextCompat.getDrawable(context, item.icon)!!.mutate()
     private val pillRect = RectF()
@@ -703,7 +702,6 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
             if (field == value) return
             field = value
             isSelected = value
-            icon.setTint(if (value) Color.WHITE else deep)
             invalidate()
         }
 
@@ -718,7 +716,6 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
     fun badgeDy() = -size * 0.36f
 
     init {
-        icon.setTint(deep)
         contentDescription = item.label
         isClickable = true
         isFocusable = true
@@ -739,10 +736,16 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
         val cx = width / 2f
         val cy = size / 2f + dp(4f)
         val r = size / 2f
-        if (active) canvas.drawCircle(cx, cy, r + dp(5f), halo)
-        disc.color = if (active) item.tint else pastel
+        disc.color = if (active) item.tint else Chrome.surface
+        Chrome.shade(disc, dp(8f), dp(3f))
         canvas.drawCircle(cx, cy, r, disc)
-        if (active) canvas.drawCircle(cx, cy, r - dp(1.5f), chosenRim)
+        if (active) {
+            canvas.drawCircle(cx, cy, r - dp(1.5f), chosenRim)
+        } else {
+            edge.color = Chrome.hairline
+            canvas.drawCircle(cx, cy, r - dp(0.5f), edge)
+        }
+        icon.setTint(if (active) Color.WHITE else Chrome.icon)
         val s = dp(ICON_DP)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
