@@ -35,6 +35,14 @@ internal object OrbStyle {
     const val LABEL = 0xFF2C3138.toInt()
     const val DANGER = 0xFFC0392B.toInt()
     const val SHADOW = 0x29141E28
+
+    /**
+     * Colour has one job on the board: the orb (and its badge) wear the tool's colour, the dots
+     * the ink's. Every other floating control is graphite on white, so nothing clashes with
+     * whichever tool is in hand.
+     */
+    const val CHROME = 0xFF2C3138.toInt()
+    const val CHROME_HAIRLINE = 0x332C3138
 }
 
 /** Ring items that switch something on and off instead of picking a tool. */
@@ -499,6 +507,7 @@ internal class OrbButton(context: Context) : View(context) {
     private val dotRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(5f), 0f, dp(2f), OrbStyle.SHADOW) }
     private val badgeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f) }
+    private val badgeHalo = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursor = ContextCompat.getDrawable(context, R.drawable.ic_cursor)!!.mutate()
     private val pupilsIcon = ContextCompat.getDrawable(context, R.drawable.ic_pupils)!!.mutate()
     private var icon: Drawable? = null
@@ -523,7 +532,6 @@ internal class OrbButton(context: Context) : View(context) {
         set(value) {
             if (field == value) return
             field = value
-            cursor.setTint(if (value) Color.WHITE else OrbStyle.TEAL_DARK)
             invalidate()
         }
 
@@ -548,7 +556,6 @@ internal class OrbButton(context: Context) : View(context) {
         isClickable = true
         isFocusable = true
         spring = PressSpring(this)
-        cursor.setTint(OrbStyle.TEAL_DARK)
     }
 
     fun setIcon(res: Int, description: String) {
@@ -575,7 +582,9 @@ internal class OrbButton(context: Context) : View(context) {
         val cx = width / 2f
         val cy = height / 2f
         val r = dp(34f)
-        val layer = if (using) canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), 140) else -1
+        // Fingers on the screen (cursor) or pupils writing with them: the pen steps back.
+        val faded = using || (pupilsBadge && pupilsOn)
+        val layer = if (faded) canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), 140) else -1
         canvas.drawCircle(cx, cy, r + dp(7f), halo)
         canvas.drawCircle(cx, cy, r, fill)
         icon?.let {
@@ -594,13 +603,24 @@ internal class OrbButton(context: Context) : View(context) {
         val bx = badgeX()
         val by = badgeY()
         val br = dp(15f)
+        // The badge belongs to the orb: it takes the orb's own colour (the tool's), never a
+        // colour of its own that would clash with some tools. White with the icon in that colour;
+        // lit, filled with it and a white rim that parts it from the orb.
         val lit = if (pupilsBadge) pupilsOn else using
-        val accent = if (pupilsBadge) PUPILS_VIOLET else OrbStyle.TEAL
-        badgeFill.color = if (lit) accent else Color.WHITE
-        badgeRing.color = if (lit) Color.WHITE else accent
+        val deep = ColorUtils.blendARGB(tint, Color.BLACK, 0.18f)
+        // Lit, like a chosen tool in the ring: full colour, white rim and a halo, so "on" reads
+        // at a glance even over the orb's own colour.
+        if (lit) {
+            badgeHalo.color = ColorUtils.setAlphaComponent(tint, 0x66)
+            canvas.drawCircle(bx, by, br + dp(5f), badgeHalo)
+        }
+        badgeFill.color = if (lit) deep else Color.WHITE
         canvas.drawCircle(bx, by, br, badgeFill)
-        canvas.drawCircle(bx, by, br - dp(1f), badgeRing)
-        val mark = if (pupilsBadge) pupilsIcon.apply { setTint(if (lit) Color.WHITE else PUPILS_VIOLET) } else cursor
+        badgeRing.strokeWidth = dp(if (lit) 2.5f else 1f)
+        badgeRing.color = if (lit) Color.WHITE else ColorUtils.setAlphaComponent(deep, 0x59)
+        canvas.drawCircle(bx, by, br - badgeRing.strokeWidth / 2, badgeRing)
+        val mark = if (pupilsBadge) pupilsIcon else cursor
+        mark.setTint(if (lit) Color.WHITE else deep)
         val s = dp(if (pupilsBadge) 19f else 17f)
         mark.setBounds((bx - s / 2).toInt(), (by - s / 2).toInt(), (bx + s / 2).toInt(), (by + s / 2).toInt())
         mark.draw(canvas)
@@ -616,9 +636,6 @@ internal class OrbButton(context: Context) : View(context) {
     private companion object {
         /** Badge centre from the orb centre, in dp: it overlaps the orb's rim. */
         const val BADGE_DISTANCE = 37f
-
-        /** The "Pupils" tool's own colour in the ring. */
-        const val PUPILS_VIOLET = 0xFF7048E8.toInt()
 
         /** Colour dot radius (dp) for each ink thickness. */
         val DOT_RADII = floatArrayOf(4.5f, 6f, 7.5f)

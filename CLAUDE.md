@@ -55,8 +55,12 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
   Benchmark: inject a long stylus scribble with `adb shell input stylus motionevent …` in one shell and
   read framestats (scripts were in the session scratchpad; undo the stroke with a long press on the orb).
 - **Orb badge on the whiteboard = "Pupils"** (`OrbButton.pupilsBadge`): there, the whiteboard button
-  already goes back to the screen, so the badge toggles finger-writing (violet while on) instead of the
-  cursor. Elsewhere it is the cursor as before.
+  already goes back to the screen, so the badge toggles finger-writing instead of the cursor (elsewhere
+  it is the cursor as before). While pupils write, the orb fades like in cursor mode.
+- **Colour roles (1.4.3):** only the orb and its badge wear colour, the active tool's (badge at rest:
+  white, icon in the tool's deep shade; lit: filled with it, white rim, halo, like a chosen ring tool);
+  the dots wear ink colours. Every other floating control (whiteboard button and scissors, paper
+  picker, palette "save") is graphite on white (`OrbStyle.CHROME`). Teal stays only in the setup cards.
 - **Quick colour dots:** one 32 dp window each, 30° apart at 62 dp (centres 32 dp apart): the windows
   must not overlap, or a tap on a dot's edge went to its neighbour (2026-10-29). No software layer
   (it left each window's first frame as a grey square until pressed); shadow fits the window.

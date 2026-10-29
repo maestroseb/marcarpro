@@ -17,7 +17,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 
 /**
- * A round button with an icon (the whiteboard): white with a teal ring, solid teal when [on].
+ * A round button with an icon (the whiteboard): graphite on white, solid graphite when [on]
+ * ([OrbStyle.CHROME]: only the orb wears colour).
  * An optional small badge sits on its rim at two o'clock, like the main orb's cursor: on the
  * whiteboard button, the scissors that cut a piece of the screen out onto it.
  */
@@ -25,17 +26,18 @@ import androidx.core.graphics.ColorUtils
 internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(6f), 0f, dp(2f), OrbStyle.SHADOW) }
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f) }
-    private val icon = ContextCompat.getDrawable(context, iconRes)!!.mutate().apply { setTint(OrbStyle.TEAL_DARK) }
-    private val badge = if (badgeRes == 0) null else ContextCompat.getDrawable(context, badgeRes)!!.mutate().apply { setTint(Color.WHITE) }
-    private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = OrbStyle.TEAL; setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
-    private val badgeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f); color = Color.WHITE }
+    private val icon = ContextCompat.getDrawable(context, iconRes)!!.mutate().apply { setTint(OrbStyle.CHROME) }
+    // The badge looks like the orb's own at rest: white, a hairline, the icon in graphite.
+    private val badge = if (badgeRes == 0) null else ContextCompat.getDrawable(context, badgeRes)!!.mutate().apply { setTint(OrbStyle.CHROME) }
+    private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW) }
+    private val badgeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = OrbStyle.CHROME_HAIRLINE }
     private val spring = PressSpring(this)
 
     var on = false
         set(value) {
             if (field == value) return
             field = value
-            icon.setTint(if (value) Color.WHITE else OrbStyle.TEAL_DARK)
+            icon.setTint(if (value) Color.WHITE else OrbStyle.CHROME)
             invalidate()
         }
 
@@ -62,10 +64,11 @@ internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : 
         val cx = width / 2f
         val cy = height / 2f
         val r = dp(24f)
-        fill.color = if (on) OrbStyle.TEAL else Color.WHITE
-        ring.color = if (on) Color.WHITE else OrbStyle.TEAL
+        fill.color = if (on) OrbStyle.CHROME else Color.WHITE
+        ring.color = if (on) Color.WHITE else OrbStyle.CHROME_HAIRLINE
+        ring.strokeWidth = dp(if (on) 2f else 1f)
         canvas.drawCircle(cx, cy, r, fill)
-        canvas.drawCircle(cx, cy, r - dp(1f), ring)
+        canvas.drawCircle(cx, cy, r - ring.strokeWidth / 2, ring)
         val s = dp(24f)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
@@ -73,7 +76,7 @@ internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : 
             val bx = badgeX()
             val by = badgeY()
             canvas.drawCircle(bx, by, dp(13f), badgeFill)
-            canvas.drawCircle(bx, by, dp(13f) - dp(1f), badgeRing)
+            canvas.drawCircle(bx, by, dp(13f) - dp(0.5f), badgeRing)
             val bs = dp(15f)
             b.setBounds((bx - bs / 2).toInt(), (by - bs / 2).toInt(), (bx + bs / 2).toInt(), (by + bs / 2).toInt())
             b.draw(canvas)
@@ -340,7 +343,7 @@ internal class PaletteView(context: Context, private val onPick: (Pick) -> Unit)
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(OrbStyle.TEAL)
+                setColor(OrbStyle.CHROME)
                 cornerRadius = dp(20f)
             }
             isClickable = true
@@ -523,10 +526,10 @@ internal class PaperPickerView(
     private val colorsH = dp(COLORS_H_DP)
     private val pad = dp(PAD_DP)
     private val card = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(dp(8f), 0f, dp(3f), OrbStyle.SHADOW) }
-    private val chosenFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ColorUtils.setAlphaComponent(OrbStyle.TEAL, 0x2E) }
+    private val chosenFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ColorUtils.setAlphaComponent(OrbStyle.CHROME, 0x14) }
     private val sheet = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheetEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.5f); color = 0x40000000 }
-    private val chosenEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f); color = OrbStyle.TEAL }
+    private val chosenEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f); color = OrbStyle.CHROME }
     private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(1.3f); strokeCap = Paint.Cap.ROUND }
     private val swatchEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x40000000 }
     private val chevron = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -534,7 +537,7 @@ internal class PaperPickerView(
         strokeWidth = dp(2.5f)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = OrbStyle.TEAL_DARK
+        color = OrbStyle.CHROME
     }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = context.sp(11.5f)
