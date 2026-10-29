@@ -54,6 +54,12 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
   stroke; the ink view is built on a window context because the predictor reads the display).
   Benchmark: inject a long stylus scribble with `adb shell input stylus motionevent …` in one shell and
   read framestats (scripts were in the session scratchpad; undo the stroke with a long press on the orb).
+- **Orb badge on the whiteboard = "Pupils"** (`OrbButton.pupilsBadge`): there, the whiteboard button
+  already goes back to the screen, so the badge toggles finger-writing (violet while on) instead of the
+  cursor. Elsewhere it is the cursor as before.
+- **Quick colour dots:** one 32 dp window each, 30° apart at 62 dp (centres 32 dp apart): the windows
+  must not overlap, or a tap on a dot's edge went to its neighbour (2026-10-29). No software layer
+  (it left each window's first frame as a grey square until pressed); shadow fits the window.
 - **Saving:** only boards that changed are written (`changed`), through `AtomicFile` (synced: the panel
   is often switched off at the wall); a board left empty deletes its file. Saved ink is read and decoded
   on the IO thread (`loadBoard` → `AnnotationView.addSaved`, appended after anything written meanwhile),

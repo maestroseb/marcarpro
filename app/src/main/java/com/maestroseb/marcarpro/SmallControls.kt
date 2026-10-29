@@ -787,19 +787,27 @@ internal class QuickColorView(context: Context) : View(context) {
     }
 
     init {
-        setLayerType(LAYER_TYPE_SOFTWARE, null) // the shadow layer
+        // Shadows on circles draw on the GPU from Android 9. A software layer left the first
+        // frame of each window grey (a square behind each dot) until it was pressed.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) setLayerType(LAYER_TYPE_SOFTWARE, null)
         visibility = GONE
+    }
+
+    // Shown again: draw it now, so the window never keeps an old (empty) frame.
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility == VISIBLE) postInvalidateOnAnimation()
     }
 
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val press = if (isPressed) 1.2f else 1f
+        val press = if (isPressed) 1.1f else 1f
         val light = androidx.core.graphics.ColorUtils.calculateLuminance(color) > 0.7
         fill.color = color
         if (active) {
             val r = dp(ACTIVE_DP) * press
-            fill.setShadowLayer(dp(4f), 0f, dp(1.5f), OrbStyle.SHADOW)
+            fill.setShadowLayer(dp(3f), 0f, dp(1f), OrbStyle.SHADOW) // fits the 32 dp window
             canvas.drawCircle(cx, cy, r, fill)
             canvas.drawCircle(cx, cy, r - dp(1.25f), rim)
             if (light) canvas.drawCircle(cx, cy, r, edge)

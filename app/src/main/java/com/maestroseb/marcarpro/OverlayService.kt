@@ -85,10 +85,12 @@ class OverlayService : Service() {
         private const val BLANK_TOLERANCE = 20
         private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
-        private const val QUICK_DISTANCE_DP = 60f
-        // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge).
-        private val QUICK_ANGLES_RIGHT = doubleArrayOf(20.0, 45.0, 70.0)
-        private val QUICK_ANGLES_LEFT = doubleArrayOf(160.0, 135.0, 110.0)
+        private const val QUICK_DISTANCE_DP = 62f
+        // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
+        // 30° apart, 32 dp between centres, as wide as each dot's window.
+        private val QUICK_ANGLES_RIGHT = doubleArrayOf(15.0, 45.0, 75.0)
+        private val QUICK_ANGLES_LEFT = doubleArrayOf(165.0, 135.0, 105.0)
+        private const val QUICK_WINDOW_DP = 32f
         private const val SETUP_POLL_MS = 1000L
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
         private const val PANEL_CROP_TIMEOUT_MS = 10L * 60 * 1000
@@ -349,6 +351,8 @@ class OverlayService : Service() {
             onTap = {
                 when {
                     orbitView.editing -> orbitView.stopEditing()
+                    // On the whiteboard the badge is "Pupils" (its screen button goes back to the screen).
+                    orb.downOnBadge && whiteboard && !paused -> togglePupils()
                     orb.downOnBadge || paused -> togglePause()
                     colors.isOpen -> closeColors()
                     orb.downOnDot -> openColors()
@@ -387,7 +391,9 @@ class OverlayService : Service() {
         repeat(Prefs.QUICK_COUNT) { i ->
             val v = QuickColorView(this)
             v.setOnClickListener { onQuickColor(i) }
-            val q = Floater(wm, v, dpi(40f), core = dpi(20f))
+            // Narrower than the gap between two dots: windows that overlapped sent a tap on the
+            // edge of one dot to its neighbour.
+            val q = Floater(wm, v, dpi(QUICK_WINDOW_DP), core = dpi(QUICK_WINDOW_DP / 2))
             q.attach(orbF.cx, orbF.cy)
             quickFloaters += q
         }
@@ -922,6 +928,7 @@ class OverlayService : Service() {
         }
         whiteView?.on = whiteboard
         showPaperPicker(whiteboard)
+        refresh()
     }
 
     /** The background picker, at the bottom left, only while the whiteboard is open. */
@@ -1687,6 +1694,8 @@ class OverlayService : Service() {
                 inkColor = if (ink.tool == Tool.MAGIC) Presets.MAGIC_COLOR else prefs.colorFor(ink.tool)
                 sizeLevel = prefs.sizeIndex
                 using = paused
+                pupilsBadge = whiteboard && !paused
+                pupilsOn = prefs.fingerMode == FingerMode.WRITE
                 tint = orbTint(ink.tool)
             }
             o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE)

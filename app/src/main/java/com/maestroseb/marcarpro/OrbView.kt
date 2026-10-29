@@ -500,6 +500,7 @@ internal class OrbButton(context: Context) : View(context) {
     private val badgeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(5f), 0f, dp(2f), OrbStyle.SHADOW) }
     private val badgeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f) }
     private val cursor = ContextCompat.getDrawable(context, R.drawable.ic_cursor)!!.mutate()
+    private val pupilsIcon = ContextCompat.getDrawable(context, R.drawable.ic_pupils)!!.mutate()
     private var icon: Drawable? = null
     private var iconRes = 0
     var inkColor = Color.BLACK
@@ -525,6 +526,15 @@ internal class OrbButton(context: Context) : View(context) {
             cursor.setTint(if (value) Color.WHITE else OrbStyle.TEAL_DARK)
             invalidate()
         }
+
+    /**
+     * On the whiteboard the badge is "Pupils" (the screen button already goes back to the
+     * screen): violet while several can write with their fingers.
+     */
+    var pupilsBadge = false
+        set(value) { if (field != value) { field = value; invalidate() } }
+    var pupilsOn = false
+        set(value) { if (field != value) { field = value; invalidate() } }
 
     /** Whether the press now going on started on the cursor badge. */
     var downOnBadge = false
@@ -584,13 +594,16 @@ internal class OrbButton(context: Context) : View(context) {
         val bx = badgeX()
         val by = badgeY()
         val br = dp(15f)
-        badgeFill.color = if (using) OrbStyle.TEAL else Color.WHITE
-        badgeRing.color = if (using) Color.WHITE else OrbStyle.TEAL
+        val lit = if (pupilsBadge) pupilsOn else using
+        val accent = if (pupilsBadge) PUPILS_VIOLET else OrbStyle.TEAL
+        badgeFill.color = if (lit) accent else Color.WHITE
+        badgeRing.color = if (lit) Color.WHITE else accent
         canvas.drawCircle(bx, by, br, badgeFill)
         canvas.drawCircle(bx, by, br - dp(1f), badgeRing)
-        val s = dp(17f)
-        cursor.setBounds((bx - s / 2).toInt(), (by - s / 2).toInt(), (bx + s / 2).toInt(), (by + s / 2).toInt())
-        cursor.draw(canvas)
+        val mark = if (pupilsBadge) pupilsIcon.apply { setTint(if (lit) Color.WHITE else PUPILS_VIOLET) } else cursor
+        val s = dp(if (pupilsBadge) 19f else 17f)
+        mark.setBounds((bx - s / 2).toInt(), (by - s / 2).toInt(), (bx + s / 2).toInt(), (by + s / 2).toInt())
+        mark.draw(canvas)
     }
 
     override fun setPressed(pressed: Boolean) {
@@ -603,6 +616,9 @@ internal class OrbButton(context: Context) : View(context) {
     private companion object {
         /** Badge centre from the orb centre, in dp: it overlaps the orb's rim. */
         const val BADGE_DISTANCE = 37f
+
+        /** The "Pupils" tool's own colour in the ring. */
+        const val PUPILS_VIOLET = 0xFF7048E8.toInt()
 
         /** Colour dot radius (dp) for each ink thickness. */
         val DOT_RADII = floatArrayOf(4.5f, 6f, 7.5f)
