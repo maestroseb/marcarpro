@@ -128,6 +128,26 @@ class OverlayService : Service() {
         gravity = Gravity.BOTTOM or Gravity.START
         title = "Marcar Pro paper"
     }
+    // The saved whiteboards ("My boards", over the paper picker) and the page pill at the bottom.
+    private lateinit var whiteboards: Boards
+    private var boardList: BoardListView? = null
+    private var boardsShown = false
+    private val boardsParams = WLP(
+        WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
+        WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN or WLP.FLAG_WATCH_OUTSIDE_TOUCH, PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.BOTTOM or Gravity.START
+        title = "Marcar Pro boards"
+    }
+    private var pagePill: PagePillView? = null
+    private var pillShown = false
+    private val pillParams = WLP(
+        WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
+        WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        title = "Marcar Pro pages"
+    }
     private var cropView: CropView? = null
     private var cropping = false
     private var cropFromWhiteboard = false
@@ -234,6 +254,16 @@ class OverlayService : Service() {
         }
         wm = getSystemService(WindowManager::class.java)
         prefs = Prefs(this)
+        whiteboards = Boards(filesDir, prefs)
+        val gone = whiteboards.tidy()
+        val keep = whiteboards.ids
+        io.execute {
+            for (k in gone) InkStore.delete(pageFile(k))
+            // Pictures of boards that are gone.
+            filesDir.listFiles { f -> f.name.startsWith("thumb_") }?.forEach { f ->
+                if (f.name.removePrefix("thumb_").removeSuffix(".png") !in keep) f.delete()
+            }
+        }
         val screen = wm.screenSize()
         val touch = PanelTouch(this).also { it.start() }
         panel = touch
@@ -266,6 +296,7 @@ class OverlayService : Service() {
         ink.listener = AnnotationView.Listener {
             lastActivity = SystemClock.uptimeMillis()
             changed.add(pageKey)
+            if (PageKeys.isWhiteboard(pageKey) && whiteboards.current == null) whiteboards.markQuickUsed()
             handler.removeCallbacks(saveInk)
             handler.postDelayed(saveInk, SAVE_DELAY_MS)
         }
@@ -427,20 +458,22 @@ class OverlayService : Service() {
         announceUpdate()
 
         // 7. The whiteboard's background picker, shown with the whiteboard.
+        // The quick board keeps the last paper chosen; a saved board, its own.
         paperPicker = PaperPickerView(this, onPick = { p ->
-            prefs.paper = p
+            if (whiteboards.current == null) prefs.paper = p else whiteboards.setPaper(p, whiteboards.current!!.color)
             canvas?.paperStyle = p
         }, onColor = { c ->
-            prefs.paperColor = c
+            if (whiteboards.current == null) prefs.paperColor = c else whiteboards.setPaper(whiteboards.current!!.paper, c)
             canvas?.paperColor = c
-        }).apply {
+        }, onBoards = ::showBoards).apply {
             paper = prefs.paper
             paperColor = prefs.paperColor
             // Opening the list makes the window taller (upwards): the PC must not get those touches either.
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (paperShown) reservePaper() }
         }
-        ink.paperStyle = prefs.paper
-        ink.paperColor = prefs.paperColor
+        applyBoardPaper()
+        boardList = BoardListView(this, boardListener)
+        pagePill = PagePillView(this, onPrev = { goToPage(whiteboards.page - 1) }, onNext = { goToPage(whiteboards.page + 1) }, onAdd = ::addPage)
 
         // It opens with the cursor ("using the screen"); the orb brings the pen, on an ink tool.
         val start = prefs.tool.takeIf { it != Tool.ERASER } ?: Tool.PEN
@@ -490,6 +523,8 @@ class OverlayService : Service() {
         closeSetup()
         hintView?.let { runCatching { wm.removeView(it) } }
         showPaperPicker(false)
+        hideBoards()
+        showPagePill(false)
         hidePalette()
         whiteFloater?.detach()
         for (q in quickFloaters) q.detach()
@@ -574,7 +609,7 @@ class OverlayService : Service() {
      */
     private fun loadBoard(ink: AnnotationView, key: String): AnnotationView.Board {
         boards[key]?.let { return it }
-        val board = ink.newBoard(paper = key == PageKeys.WHITEBOARD)
+        val board = ink.newBoard(paper = PageKeys.isWhiteboard(key))
         boards[key] = board
         val file = pageFile(key)
         loading.add(key)
@@ -914,9 +949,12 @@ class OverlayService : Service() {
             closeRing()
             underPage = pageKey
             whiteboard = true
-            showPage(PageKeys.WHITEBOARD, now = true)
-            toast(R.string.whiteboard_on)
+            val binned = emptyQuickIfOld()
+            applyBoardPaper()
+            showPage(whiteboards.key, now = true)
+            toast(if (binned) R.string.quick_to_bin else R.string.whiteboard_on, long = binned)
         } else {
+            keepThumb()
             whiteboard = false
             showPage(underPage, now = true)
             // Back to the cursor if that is where the teacher came from (not when a cut-out is on its way).
@@ -928,6 +966,8 @@ class OverlayService : Service() {
         }
         whiteView?.on = whiteboard
         showPaperPicker(whiteboard)
+        showPagePill(whiteboard)
+        if (!whiteboard) hideBoards()
         refresh()
     }
 
@@ -956,6 +996,233 @@ class OverlayService : Service() {
         val screen = wm.screenSize()
         panel?.setArea(PanelTouch.AREA_PAPER, Rect(paperParams.x, screen.y - paperParams.y - h, paperParams.x + w, screen.y - paperParams.y))
     }
+
+    // region Boards and pages
+
+    /** The paper of the board on the whiteboard (the quick board's is the last one chosen). */
+    private fun applyBoardPaper() {
+        val b = whiteboards.current
+        val paper = b?.paper ?: prefs.paper
+        val color = b?.color ?: prefs.paperColor
+        canvas?.paperStyle = paper
+        canvas?.paperColor = color
+        paperPicker?.apply {
+            this.paper = paper
+            paperColor = color
+            boardName = b?.name ?: getString(R.string.board_quick)
+        }
+    }
+
+    private fun quickKeys() = (0 until whiteboards.quickPages).map { Boards.pageKey(null, it) }
+
+    /**
+     * Gives the ink of [from] page keys to [to] (same order): in memory and on disk, after any
+     * write already queued (the IO thread runs in order). The board on screen stays as it is.
+     */
+    private fun moveInk(from: List<String>, to: List<String>) {
+        for ((a, b) in from.zip(to)) {
+            boards.remove(a)?.let { boards[b] = it }
+            if (changed.remove(a)) changed.add(b)
+            if (pageKey == a) pageKey = b
+        }
+        val files = from.zip(to).map { (a, b) -> pageFile(a) to pageFile(b) }
+        io.execute { for ((a, b) in files) if (a.exists()) a.renameTo(b) }
+    }
+
+    /**
+     * The quick board empties itself the next day. Nothing is lost by surprise: yesterday's ink
+     * goes to the bin as a board named after its day, for a week. True if it went there (the
+     * caller says so: its own message would hide this one).
+     */
+    private fun emptyQuickIfOld(): Boolean {
+        if (!whiteboards.quickExpired) return false
+        val keys = quickKeys()
+        if (keys.any { it in loading }) return false // being read: next time
+        val written = keys.map { pageFile(it) }.filter { it.exists() }
+        val hasInk = written.isNotEmpty() || keys.any { k -> boards[k]?.let { it.strokes.isNotEmpty() } == true }
+        if (hasInk) {
+            saveNow()
+            val day = written.maxOfOrNull { it.lastModified() } ?: System.currentTimeMillis()
+            val old = whiteboards.create(Boards.nameFor(day), prefs.paper, prefs.paperColor, pages = keys.size, trashed = true)
+            moveInk(keys, keys.indices.map { Boards.pageKey(old.id, it) })
+        }
+        whiteboards.resetQuick()
+        return hasInk
+    }
+
+    /**
+     * Opens [board] (null: the quick board) on the whiteboard, on the page it was left at. The
+     * list closes, unless [keepList] (the board in view was just thrown away from it).
+     */
+    private fun openBoard(board: Boards.Saved?, keepList: Boolean = false) {
+        if (board === whiteboards.current) {
+            hideBoards()
+            return
+        }
+        keepThumb()
+        whiteboards.open(board)
+        val binned = board == null && emptyQuickIfOld()
+        applyBoardPaper()
+        showPage(whiteboards.key, now = true)
+        updatePagePill()
+        if (keepList) refreshBoards() else hideBoards()
+        if (binned) toast(R.string.quick_to_bin, long = true)
+        else if (!keepList) toast(board?.name ?: getString(R.string.board_quick))
+    }
+
+    /** The quick board becomes a saved board, named after now; the quick board starts again empty. */
+    private fun saveQuick() {
+        val keys = quickKeys()
+        if (keys.any { it in loading }) return
+        handler.removeCallbacks(saveInk)
+        saveNow()
+        val board = whiteboards.create(Boards.nameFor(System.currentTimeMillis()), prefs.paper, prefs.paperColor,
+            pages = whiteboards.quickPages, page = whiteboards.quickPage)
+        moveInk(keys, keys.indices.map { Boards.pageKey(board.id, it) })
+        whiteboards.resetQuick()
+        whiteboards.open(board)
+        keepThumb()
+        applyBoardPaper()
+        updatePagePill()
+        hideBoards()
+        toast(getString(R.string.board_saved, board.name))
+    }
+
+    /** A new, empty saved board, with the paper of the one on the whiteboard. */
+    private fun newBoard() {
+        val c = whiteboards.current
+        val board = whiteboards.create(Boards.nameFor(System.currentTimeMillis()), c?.paper ?: prefs.paper, c?.color ?: prefs.paperColor)
+        openBoard(board)
+    }
+
+    /** Turns to [page] of the board on the whiteboard; a last page left empty goes away. */
+    private fun goToPage(page: Int) {
+        val ink = canvas ?: return
+        if (page !in 0 until whiteboards.pages || page == whiteboards.page) return
+        val leaving = whiteboards.page
+        val dropLast = leaving == whiteboards.pages - 1 && page < leaving && ink.isEmpty && pageKey !in loading
+        whiteboards.goTo(page)
+        showPage(whiteboards.key, now = true)
+        if (dropLast) {
+            boards.remove(Boards.pageKey(whiteboards.current?.id, leaving))
+            whiteboards.dropLastPage()
+        }
+        updatePagePill()
+    }
+
+    private fun addPage() {
+        whiteboards.addPage()
+        goToPage(whiteboards.pages - 1)
+    }
+
+    private val boardListener = object : BoardListView.Listener {
+        override fun onOpenBoard(board: Boards.Saved?) = openBoard(board)
+        override fun onPinBoard(board: Boards.Saved, pinned: Boolean) {
+            whiteboards.setPinned(board, pinned)
+            refreshBoards()
+        }
+        override fun onThrowBoard(board: Boards.Saved) {
+            if (board === whiteboards.current) openBoard(null, keepList = true)
+            whiteboards.throwAway(board)
+            refreshBoards()
+            toast(getString(R.string.board_thrown, board.name))
+        }
+        override fun onRestoreBoard(board: Boards.Saved) {
+            whiteboards.restore(board)
+            refreshBoards()
+            toast(getString(R.string.board_restored, board.name))
+        }
+        override fun onSaveQuick() = saveQuick()
+        override fun onNewBoard() = newBoard()
+        override fun onBoardsOutside() = hideBoards()
+        override fun boardThumb(board: Boards.Saved): android.graphics.Bitmap? = thumbs.getOrPut(board.id) {
+            runCatching { android.graphics.BitmapFactory.decodeFile(thumbFile(board.id).path) }.getOrNull()
+        }
+    }
+
+    // Pictures of the saved boards' ink, for the list: in memory once read, on disk as small PNGs.
+    private val thumbs = HashMap<String, android.graphics.Bitmap?>()
+
+    private fun thumbFile(id: String) = File(filesDir, "thumb_$id.png")
+
+    /** Takes a new picture of the saved board on the whiteboard (the page in view). */
+    private fun keepThumb() {
+        val b = whiteboards.current ?: return
+        val ink = canvas ?: return
+        if (!whiteboard || !PageKeys.isWhiteboard(pageKey)) return
+        val bmp = ink.thumbnail(dpi(BoardListView.THUMB_W_DP), dpi(BoardListView.THUMB_H_DP))
+        thumbs[b.id] = bmp
+        val file = thumbFile(b.id)
+        io.execute {
+            if (bmp == null) file.delete() else runCatching {
+                file.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            }
+        }
+    }
+
+    /** "My boards", where the paper picker's card was. */
+    private fun showBoards() {
+        val v = boardList ?: return
+        if (!whiteboard) return
+        v.reset()
+        keepThumb()
+        refreshBoards()
+        if (!boardsShown) {
+            boardsShown = true
+            boardsParams.x = dpi(8f) - dpi(10f) // the card's shadow margin lines it up with the picker
+            boardsParams.y = dpi(8f) - dpi(10f)
+            boardsParams.width = dpi(BoardListView.WIDTH_DP)
+            wm.addView(v, boardsParams)
+            v.addOnLayoutChangeListener(reserveBoards)
+        }
+    }
+
+    private val reserveBoards = View.OnLayoutChangeListener { v, l, t, r, b, _, _, _, _ ->
+        if (!boardsShown) return@OnLayoutChangeListener
+        val screen = wm.screenSize()
+        panel?.setArea(PanelTouch.AREA_BOARDS, Rect(boardsParams.x, screen.y - boardsParams.y - (b - t), boardsParams.x + (r - l), screen.y - boardsParams.y))
+    }
+
+    private fun refreshBoards() {
+        val v = boardList ?: return
+        val quickHasInk = whiteboards.current != null || canvas?.isEmpty == false || whiteboards.quickPages > 1
+        v.show(whiteboards, quickHasInk)
+    }
+
+    private fun hideBoards() {
+        val v = boardList ?: return
+        if (!boardsShown) return
+        boardsShown = false
+        v.removeOnLayoutChangeListener(reserveBoards)
+        runCatching { wm.removeView(v) }
+        panel?.clearArea(PanelTouch.AREA_BOARDS)
+    }
+
+    /** The page pill, at the bottom centre, only while the whiteboard is open. */
+    private fun showPagePill(show: Boolean) {
+        val v = pagePill ?: return
+        if (show == pillShown) return
+        pillShown = show
+        if (!show) {
+            runCatching { wm.removeView(v) }
+            panel?.clearArea(PanelTouch.AREA_PAGES)
+            return
+        }
+        updatePagePill()
+        pillParams.y = dpi(4f)
+        wm.addView(v, pillParams)
+        v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val screen = wm.screenSize()
+        val w = v.measuredWidth
+        val h = v.measuredHeight
+        panel?.setArea(PanelTouch.AREA_PAGES, Rect((screen.x - w) / 2, screen.y - pillParams.y - h, (screen.x + w) / 2, screen.y - pillParams.y))
+    }
+
+    private fun updatePagePill() {
+        pagePill?.set(whiteboards.page, whiteboards.pages)
+    }
+
+    // endregion
 
     // region Cut out to the whiteboard
 
@@ -1234,7 +1501,7 @@ class OverlayService : Service() {
     /** Onto the whiteboard, once its saved ink is back (the cutouts already there count). */
     /** Puts [piece] on the whiteboard: under what is there, or centred on [at] (board coordinates). */
     private fun placePicture(piece: android.graphics.Bitmap, at: android.graphics.PointF? = null) {
-        if (PageKeys.WHITEBOARD in loading) {
+        if (pageKey in loading) {
             handler.postDelayed({ placePicture(piece, at) }, CROP_LOADING_RETRY_MS)
             return
         }

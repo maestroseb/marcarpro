@@ -566,13 +566,53 @@ class AnnotationView(context: Context) : View(context) {
 
 
 
+    /**
+     * A small picture of this board's ink, all of it fitted in, on its paper colour (the list of
+     * boards shows it: a board named after its date is told apart by what is on it). Null if empty.
+     */
+    private var thumbOutline = 0f
+
+    fun thumbnail(w: Int, h: Int): android.graphics.Bitmap? {
+        if (strokes.isEmpty() || w <= 0 || h <= 0) return null
+        val all = RectF()
+        for (s in strokes) all.union(s.bounds)
+        // A single word isn't blown up to fill the thumbnail: at least a third of the screen shows.
+        val minW = maxOf(width, 1) / 3f
+        val minH = minW * h / w
+        if (all.width() < minW) all.inset(-(minW - all.width()) / 2, 0f)
+        if (all.height() < minH) all.inset(0f, -(minH - all.height()) / 2)
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(paperColor.background)
+        val scale = minOf(w / all.width(), h / all.height()) * THUMB_FILL
+        c.translate(w / 2f, h / 2f)
+        c.scale(scale, scale)
+        c.translate(-all.centerX(), -all.centerY())
+        // Scaled down, ink would be a hairline: every pen line gets an outline about 1 px wide.
+        thumbOutline = THUMB_LINE_PX / scale
+        try {
+            for (s in strokes) drawStroke(c, s, 1f)
+        } finally {
+            thumbOutline = 0f
+        }
+        return bmp
+    }
+
     private fun drawStroke(canvas: Canvas, s: Stroke, opacity: Float) {
         if (s.tool == InkTool.IMAGE) {
             drawPicture(canvas, s, opacity)
         } else if (s.tool == InkTool.PEN) {
             inkPaint.color = shown(s.color)
             inkPaint.alpha = (Color.alpha(s.color) * opacity).toInt()
-            canvas.drawPath(s.path, inkPaint)
+            if (thumbOutline > 0f) {
+                inkPaint.style = Paint.Style.FILL_AND_STROKE
+                inkPaint.strokeWidth = thumbOutline
+                canvas.drawPath(s.path, inkPaint)
+                inkPaint.style = Paint.Style.FILL
+                inkPaint.strokeWidth = 0f
+            } else {
+                canvas.drawPath(s.path, inkPaint)
+            }
         } else {
             highlighterPaint.color = shown(s.color)
             highlighterPaint.alpha = (HIGHLIGHTER_ALPHA * opacity).toInt()
@@ -1843,6 +1883,8 @@ class AnnotationView(context: Context) : View(context) {
     // endregion
 
     private companion object {
+        private const val THUMB_FILL = 0.86f
+        private const val THUMB_LINE_PX = 1.4f
         const val NO_POINTER = -1
 
         // Infrared digitizer calibration (raw touch-major units, measured on the IFP7533):

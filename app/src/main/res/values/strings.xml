@@ -134,4 +134,50 @@
     <string name="update_offer_message">You can update now: it takes a few seconds and nothing written is lost. If you prefer later, it will install itself when the panel has been idle for a while or when it is switched on.</string>
     <string name="update_offer_now">Update now</string>
     <string name="update_offer_later">Later</string>
+
+    <!-- Boards (named whiteboards) and their pages -->
+    <string name="boards_title">Boards</string>
+    <string name="boards_bin">Bin (%d)</string>
+    <string name="boards_bin_title">Bin</string>
+    <string name="boards_back">Back</string>
+    <string name="my_boards">My boards</string>
+    <string name="board_quick">Quick board</string>
+    <string name="board_quick_meta">Empties tomorrow</string>
+    <string name="board_pinned">Pinned</string>
+    <string name="board_opened_today">Opened today</string>
+    <string name="board_opened_yesterday">Opened yesterday</string>
+    <plurals name="board_opened_days">
+        <item quantity="one">%d day ago</item>
+        <item quantity="other">%d days ago</item>
+    </plurals>
+    <plurals name="board_expires">
+        <item quantity="one">Goes to the bin tomorrow</item>
+        <item quantity="other">Goes to the bin in %d days</item>
+    </plurals>
+    <plurals name="board_deleted_in">
+        <item quantity="one">Deleted tomorrow</item>
+        <item quantity="other">Deleted in %d days</item>
+    </plurals>
+    <plurals name="board_pages">
+        <item quantity="one">%d page</item>
+        <item quantity="other">%d pages</item>
+    </plurals>
+    <string name="boards_save_new">Save as a new board</string>
+    <string name="boards_new">New board</string>
+    <string name="boards_rule">Boards not opened for 30 days go to the bin. Pinned ones never expire.</string>
+    <string name="boards_bin_rule">They delete themselves after 7 days. The arrow brings one back.</string>
+    <string name="boards_bin_empty">The bin is empty.</string>
+    <string name="board_pin">Pin</string>
+    <string name="board_unpin">Unpin</string>
+    <string name="board_throw">Move to the bin</string>
+    <string name="board_restore">Bring back</string>
+    <string name="board_saved">Saved as “%s”</string>
+    <string name="board_thrown">“%s” is in the bin</string>
+    <string name="board_restored">“%s” is back</string>
+    <string name="board_opened">%s</string>
+    <string name="quick_to_bin">The quick board from the other day is in the bin, in case you need it</string>
+    <string name="page_prev">Previous page</string>
+    <string name="page_next">Next page</string>
+    <string name="page_add">New page</string>
+    <string name="page_of">Page %1$d of %2$d</string>
 </resources>

@@ -82,6 +82,24 @@ internal class Prefs(context: Context) {
         get() = PaperColor.entries.firstOrNull { it.name == sp.getString("paper_color", null) } ?: PaperColor.WHITE
         set(value) = sp.edit { putString("paper_color", value.name) }
 
+    /** The quick board's pages, and the one shown (see [Boards]). */
+    var quickPages: Int
+        get() = sp.getInt("quick_pages", 1).coerceIn(1, Boards.MAX_PAGES)
+        set(value) = sp.edit { putInt("quick_pages", value) }
+    var quickPage: Int
+        get() = sp.getInt("quick_page", 0)
+        set(value) = sp.edit { putInt("quick_page", value) }
+
+    /** The day the quick board was last written on (0: not known yet). */
+    var quickDay: Int
+        get() = sp.getInt("quick_day", 0)
+        set(value) = sp.edit { putInt("quick_day", value) }
+
+    /** The saved board on the whiteboard, or null for the quick board. */
+    var currentBoard: String?
+        get() = sp.getString("current_board", null)
+        set(value) = sp.edit { putString("current_board", value) }
+
     var sizeIndex: Int
         get() = sp.getInt("size", 1).coerceIn(0, Presets.SIZES_DP.lastIndex)
         set(value) = sp.edit { putInt("size", value) }

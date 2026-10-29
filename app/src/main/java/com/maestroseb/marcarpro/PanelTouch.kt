@@ -229,7 +229,9 @@ internal class PanelTouch(context: Context) {
         const val AREA_PAPER = 7707
         /** The quick colours next to the orb: this and the next two. */
         const val AREA_QUICK = 7708
-        private val ALL_AREAS = AREA_INK..(AREA_QUICK + 2)
+        const val AREA_BOARDS = 7711
+        const val AREA_PAGES = 7712
+        private val ALL_AREAS = AREA_INK..AREA_PAGES
         private const val REMOVE = "com.seewo.sdk.internal.command.touch.CmdRemoveNoTouchArea"
 
         private val RESULT = Regex("""\\"result\\":(-?\d+)""")

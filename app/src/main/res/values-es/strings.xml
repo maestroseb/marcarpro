@@ -133,4 +133,50 @@
     <string name="update_offer_message">Puedes actualizar ahora: tarda unos segundos y no se pierde nada de lo escrito. Si prefieres más tarde, se instalará sola cuando el panel lleve un rato sin uso o al encenderlo.</string>
     <string name="update_offer_now">Actualizar ahora</string>
     <string name="update_offer_later">Más tarde</string>
+
+    <!-- Boards (named whiteboards) and their pages -->
+    <string name="boards_title">Pizarras</string>
+    <string name="boards_bin">Papelera (%d)</string>
+    <string name="boards_bin_title">Papelera</string>
+    <string name="boards_back">Volver</string>
+    <string name="my_boards">Mis pizarras</string>
+    <string name="board_quick">Pizarra rápida</string>
+    <string name="board_quick_meta">Se vacía mañana</string>
+    <string name="board_pinned">Fijada</string>
+    <string name="board_opened_today">Abierta hoy</string>
+    <string name="board_opened_yesterday">Abierta ayer</string>
+    <plurals name="board_opened_days">
+        <item quantity="one">Hace %d día</item>
+        <item quantity="other">Hace %d días</item>
+    </plurals>
+    <plurals name="board_expires">
+        <item quantity="one">Va a la papelera mañana</item>
+        <item quantity="other">Va a la papelera en %d días</item>
+    </plurals>
+    <plurals name="board_deleted_in">
+        <item quantity="one">Se borra mañana</item>
+        <item quantity="other">Se borra en %d días</item>
+    </plurals>
+    <plurals name="board_pages">
+        <item quantity="one">%d página</item>
+        <item quantity="other">%d páginas</item>
+    </plurals>
+    <string name="boards_save_new">Guardar como pizarra nueva</string>
+    <string name="boards_new">Nueva pizarra</string>
+    <string name="boards_rule">Las pizarras sin abrir 30 días van a la papelera. Las fijadas nunca caducan.</string>
+    <string name="boards_bin_rule">Se borran solas a los 7 días. La flecha las recupera.</string>
+    <string name="boards_bin_empty">La papelera está vacía.</string>
+    <string name="board_pin">Fijar</string>
+    <string name="board_unpin">Dejar de fijar</string>
+    <string name="board_throw">A la papelera</string>
+    <string name="board_restore">Recuperar</string>
+    <string name="board_saved">Guardada como «%s»</string>
+    <string name="board_thrown">«%s» está en la papelera</string>
+    <string name="board_restored">«%s» recuperada</string>
+    <string name="board_opened">%s</string>
+    <string name="quick_to_bin">La pizarra rápida del otro día está en la papelera, por si la necesitas</string>
+    <string name="page_prev">Página anterior</string>
+    <string name="page_next">Página siguiente</string>
+    <string name="page_add">Página nueva</string>
+    <string name="page_of">Página %1$d de %2$d</string>
 </resources>

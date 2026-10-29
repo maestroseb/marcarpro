@@ -64,6 +64,20 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
 - **Quick colour dots:** one 32 dp window each, 30° apart at 62 dp (centres 32 dp apart): the windows
   must not overlap, or a tap on a dot's edge went to its neighbour (2026-10-29). No software layer
   (it left each window's first frame as a grey square until pressed); shadow fits the window.
+- **Boards and pages (1.5.0, `Boards.kt`, `BoardsView.kt`):** the whiteboard opens the *quick board* (as
+  before) or a saved board. Page keys: quick page 0 = the old `whiteboard:` key (file `whiteboard.mkp`, so
+  older ink survived); every other page `whiteboard:<board|quick>:<n>` → file `wb_<board>_<n>.mkp` (never
+  `page_…`, which `forgetOldPages` deletes after 30 days). The list (`boards.json`, AtomicFile) keeps name
+  (date and time: "Jue 29 oct · 10:15"), pin, last opened, pages, current page, paper and colour; the quick
+  board's pages and day live in `Prefs`. Rules: the quick board empties the next day, but its ink goes to the
+  bin as a dated board (nothing lost by surprise; the first run after updating counts as today); saved boards
+  not opened for 30 days go to the bin (pinned never); the bin deletes after 7 days (`Boards.tidy`, at start).
+  "Save as new board" renames the quick files (`moveInk`: in memory and on the IO thread, after queued
+  writes). Thumbnails (`AnnotationView.thumbnail`, all the ink fitted, pen lines given a 1.4 px outline) are
+  `thumb_<id>.png`, taken when leaving a board, opening the list or closing the whiteboard. UI: "My boards"
+  row on top of the paper picker card → `BoardListView` card (fixed 380 dp, bottom left; bin view with
+  restore); `PagePillView` "‹ 2/3 › +" at the bottom centre while the whiteboard is open; turning back from
+  an empty last page drops it. Panel touch areas `AREA_BOARDS` 7711, `AREA_PAGES` 7712.
 - **Saving:** only boards that changed are written (`changed`), through `AtomicFile` (synced: the panel
   is often switched off at the wall); a board left empty deletes its file. Saved ink is read and decoded
   on the IO thread (`loadBoard` → `AnnotationView.addSaved`, appended after anything written meanwhile),

@@ -9,8 +9,13 @@ import java.security.MessageDigest
 internal object PageKeys {
     const val GENERAL = ""
 
-    /** The endless whiteboard: one, whatever is on screen underneath. */
+    /**
+     * The endless whiteboard, whatever is on screen underneath: this key is the quick board's
+     * first page, and every whiteboard page starts with it (see [Boards.pageKey]).
+     */
     const val WHITEBOARD = "whiteboard:"
+
+    fun isWhiteboard(key: String) = key.startsWith(WHITEBOARD)
 
     /** Chromium browsers: they all name their address bar `<package>:id/url_bar`. */
     val BROWSERS = setOf(
@@ -43,6 +48,10 @@ internal object PageKeys {
         "board.mkp"
     } else if (key == WHITEBOARD) {
         "whiteboard.mkp"
+    } else if (key.startsWith(WHITEBOARD)) {
+        // A whiteboard page ("whiteboard:<board>:<page>"): its own name, never taken for an old
+        // web page's ink (those go after a month untouched; boards have their own rules).
+        "wb_" + key.removePrefix(WHITEBOARD).replace(':', '_') + ".mkp"
     } else {
         val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray())
         "page_" + digest.take(12).joinToString("") { "%02x".format(it) } + ".mkp"
