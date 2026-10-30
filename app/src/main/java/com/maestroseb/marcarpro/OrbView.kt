@@ -13,6 +13,7 @@ import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.AnticipateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
@@ -229,6 +230,7 @@ internal class OrbitLayout(
             s.alpha = 0f
         }
         shown.forEachIndexed { i, s ->
+            s.animate().cancel() // a close still going on (its end hides the tool: before VISIBLE)
             s.visibility = VISIBLE
             s.translationX = 0f
             s.translationY = -s.circleOffset()
@@ -282,17 +284,24 @@ internal class OrbitLayout(
         return angles.map { a -> PointF((cos(a) * r).toFloat(), (sin(a) * r).toFloat()) }
     }
 
-    fun close() {
-        if (!isOpen) return
+    /** Closes the ring; returns how long the tools take to go in (ms, at normal animation speed). */
+    fun close(): Long {
+        if (!isOpen) return 0
         if (editing) stopEditing()
         isOpen = false
         animateOrbit(0f)
-        for (s in satellites) {
-            if (s.visibility != VISIBLE) continue
+        // The opening played backwards: the last tool out goes in first, each taking a small
+        // breath outwards before it shrinks into the orb (the bounce, mirrored). Quicker than the
+        // opening.
+        val going = shown().filter { it.visibility == VISIBLE }
+        for (s in satellites) if (s.visibility == VISIBLE && s !in going) s.visibility = INVISIBLE
+        going.forEachIndexed { i, s ->
             s.animate().translationX(0f).translationY(-s.circleOffset()).scaleX(0.3f).scaleY(0.3f).alpha(0f)
-                .setStartDelay(0).setDuration(160).setInterpolator(EASE)
+                .setStartDelay((going.size - 1 - i) * CLOSE_STAGGER_MS).setDuration(CLOSE_MS)
+                .setInterpolator(AnticipateInterpolator(1.3f))
                 .withEndAction { s.visibility = INVISIBLE }.start()
         }
+        return if (going.isEmpty()) 0 else (going.size - 1) * CLOSE_STAGGER_MS + CLOSE_MS
     }
 
     // region Edit mode
@@ -512,6 +521,8 @@ internal class OrbitLayout(
 
     private companion object {
         val EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
+        const val CLOSE_MS = 230L
+        const val CLOSE_STAGGER_MS = 20L
         const val FAN_SPAN = PI
         /** Arc between two tools' centres, in tool widths (room for the label pills too). */
         const val STEP = 1.42

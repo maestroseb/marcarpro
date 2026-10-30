@@ -67,8 +67,11 @@ internal class Floater(
         attached = false
     }
 
-    /** Lets touches through (while the window is empty) or catches them again. */
-    fun setTouchable(touchable: Boolean) {
+    /**
+     * Lets touches through (while the window is empty) or catches them again. Letting them
+     * through, the window goes [hideAfter] ms later, once its closing animation is over.
+     */
+    fun setTouchable(touchable: Boolean, hideAfter: Long = HIDE_AFTER_MS) {
         val flags = if (touchable) {
             params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         } else {
@@ -79,9 +82,8 @@ internal class Floater(
         if (attached) wm.updateViewLayout(view, params)
         // An empty window must be GONE, not just transparent: Android 12+ blocks touches that pass
         // through another app's visible window (keyboards and apps under it stopped responding).
-        // It goes once its closing animation is over.
         view.removeCallbacks(hide)
-        if (touchable) view.visibility = View.VISIBLE else view.postDelayed(hide, HIDE_AFTER_MS)
+        if (touchable) view.visibility = View.VISIBLE else view.postDelayed(hide, hideAfter)
     }
 
     private val hide = Runnable {

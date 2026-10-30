@@ -85,7 +85,7 @@ class OverlayService : Service() {
         private const val BLANK_TOLERANCE = 20
         private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
-        private const val QUICK_DISTANCE_DP = 62f
+        private const val QUICK_DISTANCE_DP = 54f
         // The clear-all button's first place (its centre, from the top right corner), and the page
         // pill under it: its card's right edge lines up with the button's (40 − 16 = 24 dp).
         private const val TRASH_RIGHT_DP = 40f
@@ -94,10 +94,12 @@ class OverlayService : Service() {
         private const val TRASH_POSITION = "clearAll"
         private const val PILL_EDGE_DP = 24f
         private const val CHROME_FADE_MS = 350L
+        private const val RING_HIDE_SLACK_MS = 60L
         // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
-        // 30° apart, 32 dp between centres, as wide as each dot's window.
-        private val QUICK_ANGLES_RIGHT = doubleArrayOf(15.0, 45.0, 75.0)
-        private val QUICK_ANGLES_LEFT = doubleArrayOf(165.0, 135.0, 105.0)
+        // 36° apart at 54 dp is 33 dp between centres, a little more than each dot's window (they
+        // must not overlap). The first starts at 18°, clear of the badge at two o'clock.
+        private val QUICK_ANGLES_RIGHT = doubleArrayOf(18.0, 54.0, 90.0)
+        private val QUICK_ANGLES_LEFT = doubleArrayOf(162.0, 126.0, 90.0)
         private const val QUICK_WINDOW_DP = 32f
         private const val SETUP_POLL_MS = 1000L
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
@@ -711,11 +713,20 @@ class OverlayService : Service() {
         handler.removeCallbacks(idleClose)
         hidePalette()
         if (!o.isOpen) return
-        ringFloater?.setTouchable(false)
         panel?.clearArea(PanelTouch.AREA_RING)
-        o.close()
-        updateQuick()
+        // The tools go in one after another: the window stays until the last is in, and the
+        // quick colours come back then (they left first when the ring opened).
+        val ms = (o.close() * animatorScale()).toLong()
+        ringFloater?.setTouchable(false, hideAfter = ms + RING_HIDE_SLACK_MS)
+        handler.removeCallbacks(quickBack)
+        handler.postDelayed(quickBack, ms)
     }
+
+    private val quickBack = Runnable { updateQuick() }
+
+    /** The system's animation speed (developer options), which stretches every animator. */
+    private fun animatorScale(): Float =
+        android.provider.Settings.Global.getFloat(contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
 
     /** Whether a screen point is on the main orb (which toggles what is open itself). */
     private fun nearOrb(x: Float, y: Float): Boolean {
