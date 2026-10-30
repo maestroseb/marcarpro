@@ -9,7 +9,10 @@ import android.graphics.Paint
 import android.graphics.SweepGradient
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
+import androidx.core.animation.doOnEnd
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.withTranslation
 import kotlin.math.PI
@@ -18,6 +21,7 @@ import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -27,6 +31,9 @@ import kotlin.math.sin
  * The thickness stays in the tools' card (it changes far less often).
  *
  * Its own window, centred on the orb and under it; it takes touches only while open.
+ *
+ * Motion (1.6.2): the colours come out of the orb's ink dot with the tools' overshoot, one after
+ * another, and go back the same way, exactly reversed. A picked colour flies into the dot.
  */
 @SuppressLint("ViewConstructor")
 internal class ColorRingView(context: Context, private val onItem: (Item) -> Unit) : View(context) {
@@ -44,6 +51,14 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
     private var pressed: Spot? = null
     private var progress = 0f
     private var animator: ValueAnimator? = null
+
+    // The colour that was picked, on its way into the orb's dot (0..1), drawn over the rest.
+    private var flying: Spot? = null
+    private var flight = 0f
+    private var flightAnim: ValueAnimator? = null
+
+    /** Called when a picked colour reaches the orb's dot (or its flight is cut short). */
+    var onLanded: (() -> Unit)? = null
 
     var isOpen = false
         private set
@@ -65,7 +80,8 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
         strokeCap = Paint.Cap.ROUND
         color = OrbStyle.INK
     }
-    private val band = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0x1F3E8784 }
+    // A soft track of the controls' material under a full ring, so colours read over any picture.
+    private val band = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     private val colorR = dp(20f)
     private var bandRadius = 0f
@@ -90,15 +106,48 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
             val hues = IntArray(7) { Color.HSVToColor(floatArrayOf(it * 60f, 0.85f, 0.95f)) }
             rainbow.shader = SweepGradient(a.x, a.y, hues, null)
         }
+        land()
         isOpen = true
         animateTo(1f, OPEN_MS)
     }
 
-    fun close() {
-        if (!isOpen) return
+    /**
+     * Closes; [fly], the picked item, goes into the orb's dot instead of back with the rest.
+     * Returns how long the closing lasts (ms, before the animator scale).
+     */
+    fun close(fly: Item? = null): Long {
+        if (!isOpen) return 0L
         isOpen = false
         hovered = null
+        pressed = null
+        land()
+        val spot = spots.firstOrNull { it.item === fly }
+        if (spot != null) {
+            flying = spot
+            flight = 0f
+            flightAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = FLY_MS
+                interpolator = FLY
+                addUpdateListener {
+                    flight = it.animatedValue as Float
+                    invalidate()
+                }
+                doOnEnd { land() }
+                start()
+            }
+        }
         animateTo(0f, CLOSE_MS)
+        return if (spot != null) max(CLOSE_MS, FLY_MS) else CLOSE_MS
+    }
+
+    // Ends a flight that is under way: the colour is in the dot.
+    private fun land() {
+        if (flying == null) return
+        flying = null
+        flightAnim?.cancel()
+        flightAnim = null
+        invalidate()
+        onLanded?.invoke()
     }
 
     /** The item at a screen position, or null. */
@@ -185,7 +234,8 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
         animator?.cancel()
         animator = ValueAnimator.ofFloat(progress, target).apply {
             duration = ms
-            interpolator = EASE
+            // Linear: each colour eases on its own, so closing is opening played backwards.
+            interpolator = LinearInterpolator()
             addUpdateListener {
                 progress = it.animatedValue as Float
                 invalidate()
@@ -195,49 +245,62 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (progress <= 0f) return
+        if (progress <= 0f && flying == null) return
         val ox = width / 2f
         val oy = height / 2f
-        if (bandRadius > 0f) {
-            band.strokeWidth = colorR * 2 + dp(12f)
-            band.alpha = (0x1F * progress).toInt()
-            canvas.drawCircle(ox, oy, bandRadius * (0.7f + 0.3f * progress), band)
+        // Everything comes out of (and goes back into) the orb's ink dot.
+        val fx = ox + dp(OrbStyle.INK_DOT_DP)
+        val fy = oy + dp(OrbStyle.INK_DOT_DP)
+        if (bandRadius > 0f && progress > 0f) {
+            val e = EASE.getInterpolation(progress)
+            band.color = ColorUtils.setAlphaComponent(Chrome.surface, (BAND_ALPHA * e).toInt())
+            band.strokeWidth = (colorR * 2 + dp(14f)) * e
+            canvas.drawCircle(ox, oy, bandRadius, band)
         }
         for (s in spots) {
-            // Each item grows out of the orb, a little after the one before.
+            if (s === flying) continue
+            // Each colour comes out a little after the one before, and overshoots its place.
             val t = ((progress - s.delay * STAGGER) / (1 - STAGGER)).coerceIn(0f, 1f)
             if (t <= 0f) continue
-            val x = ox + (s.x - ox) * t
-            val y = oy + (s.y - oy) * t
+            val e = BOUNCE.getInterpolation(t)
             val grow = if (s === hovered || s === pressed) HOVER_SCALE else 1f
-            val r = s.r * (0.3f + 0.7f * t) * grow
-            val a = (255 * t).toInt()
-            when (val item = s.item) {
-                is Item.Ink -> {
-                    disc.color = item.color
-                    disc.alpha = a
-                    canvas.drawCircle(x, y, r, disc)
-                    rim.alpha = a
-                    canvas.drawCircle(x, y, r - dp(1.5f), rim)
-                    if (ColorUtils.calculateLuminance(item.color) > 0.7) canvas.drawCircle(x, y, r, edge)
-                    if (item.color == current) {
-                        chosen.color = if (ColorUtils.calculateLuminance(item.color) > 0.7) OrbStyle.INK else item.color
-                        chosen.alpha = a
-                        canvas.drawCircle(x, y, r + dp(6f), chosen)
-                    }
+            drawSpot(canvas, s, fx + (s.x - fx) * e, fy + (s.y - fy) * e, s.r * (0.25f + 0.75f * e) * grow, min(1f, t * 2.5f))
+        }
+        flying?.let { s ->
+            val e = flight
+            // It shrinks to the size of the dot on its way, and stays solid until it lands.
+            val r = s.r + (dp(LANDED_DP) - s.r) * e
+            drawSpot(canvas, s, s.x + (fx - s.x) * e, s.y + (fy - s.y) * e, r, 1f)
+        }
+    }
+
+    private fun drawSpot(canvas: Canvas, s: Spot, x: Float, y: Float, r: Float, alpha: Float) {
+        val a = (255 * alpha).toInt()
+        when (val item = s.item) {
+            is Item.Ink -> {
+                disc.color = item.color
+                disc.alpha = a
+                canvas.drawCircle(x, y, r, disc)
+                rim.alpha = a
+                canvas.drawCircle(x, y, r - dp(1.5f), rim)
+                if (ColorUtils.calculateLuminance(item.color) > 0.7) canvas.drawCircle(x, y, r, edge)
+                if (item.color == current && s !== flying) {
+                    chosen.color = if (ColorUtils.calculateLuminance(item.color) > 0.7) OrbStyle.INK else item.color
+                    chosen.alpha = a
+                    canvas.drawCircle(x, y, r + dp(6f), chosen)
                 }
-                Item.Add -> {
-                    disc.color = Color.WHITE
-                    disc.alpha = a
-                    canvas.drawCircle(x, y, r, disc)
-                    rainbow.alpha = a
-                    // The rainbow's gradient is centred on the item's final place: draw it there, moved.
-                    canvas.withTranslation(x - s.x, y - s.y) { drawCircle(s.x, s.y, r - dp(3f), rainbow) }
-                    val p = r * 0.4f
-                    plus.alpha = a
-                    canvas.drawLine(x - p, y, x + p, y, plus)
-                    canvas.drawLine(x, y - p, x, y + p, plus)
-                }
+            }
+            Item.Add -> {
+                disc.color = Color.WHITE
+                disc.alpha = a
+                canvas.drawCircle(x, y, r, disc)
+                rainbow.alpha = a
+                // The rainbow's gradient is centred on the item's final place: draw it there, moved.
+                canvas.withTranslation(x - s.x, y - s.y) { drawCircle(s.x, s.y, r - dp(3f), rainbow) }
+                val p = r * 0.4f
+                plus.alpha = a
+                canvas.drawLine(x - p, y, x + p, y, plus)
+                canvas.drawLine(x, y - p, x, y + p, plus)
             }
         }
     }
@@ -275,9 +338,16 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
 
     private companion object {
         val EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
-        const val OPEN_MS = 260L
-        const val CLOSE_MS = 150L
-        const val STAGGER = 0.35f
+        val FLY = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+        /** The same overshoot as the ring of tools. */
+        val BOUNCE = OvershootInterpolator(1.3f)
+        const val OPEN_MS = 420L
+        const val CLOSE_MS = 300L
+        const val FLY_MS = 320L
+        const val STAGGER = 0.4f
+        const val BAND_ALPHA = 0xA6
+        /** A flying colour's size as it lands (about the orb's ink dot). */
+        const val LANDED_DP = 6f
         const val HOVER_SCALE = 1.3f
 
         /** Arcs for the colours, from the orb's centre (dp); a full ring uses the first. */

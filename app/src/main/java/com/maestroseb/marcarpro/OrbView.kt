@@ -1,5 +1,7 @@
 package com.maestroseb.marcarpro
 
+import android.animation.ArgbEvaluator
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
@@ -17,8 +19,10 @@ import android.view.animation.AnticipateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
+import androidx.core.animation.doOnEnd
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.withRotation
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -43,6 +47,10 @@ internal object OrbStyle {
      */
     const val CHROME = 0xFF2C3138.toInt()
     const val CHROME_HAIRLINE = 0x332C3138
+
+    /** The orb's radius and its ink dot's offset from the orb's centre, on each axis (dp). */
+    const val ORB_RADIUS_DP = 34f
+    const val INK_DOT_DP = ORB_RADIUS_DP * 0.62f
 }
 
 /**
@@ -516,6 +524,8 @@ internal class OrbitLayout(
             if (isOpen) onOutside?.invoke(event.rawX, event.rawY)
             return false
         }
+        // Closing (the window still catches touches until the tools are back): nothing to pick.
+        if (!isOpen && !editing) return true
         return super.dispatchTouchEvent(event)
     }
 
@@ -564,14 +574,40 @@ internal class OrbButton(context: Context) : View(context) {
     var inkColor = Color.BLACK
         set(value) { if (field != value) { field = value; invalidate() } }
 
-    /** The active tool's colour (its ring item's tint): the disc takes it. */
+    /** The active tool's colour (its ring item's tint): the disc moves to it in a short blend. */
     var tint = OrbStyle.TEAL
         set(value) {
             if (field == value) return
+            val from = fill.color
             field = value
-            fill.color = value
-            invalidate()
+            tintAnim?.cancel()
+            if (!isAttachedToWindow) {
+                fill.color = value
+                invalidate()
+                return
+            }
+            tintAnim = ValueAnimator.ofObject(ArgbEvaluator(), from, value).apply {
+                duration = TINT_MS
+                interpolator = EASE
+                addUpdateListener {
+                    fill.color = it.animatedValue as Int
+                    invalidate()
+                }
+                start()
+            }
         }
+    private var tintAnim: ValueAnimator? = null
+
+    // The icon that is leaving and how far the swap has gone (1 = done): the old one turns
+    // away and fades while the new one turns in.
+    private var oldIcon: Drawable? = null
+    private var swap = 1f
+    private var swapAnim: ValueAnimator? = null
+
+    // The ripple from the ink dot when a colour lands in it (0..1, 1 = gone).
+    private var ripple = 1f
+    private var rippleAnim: ValueAnimator? = null
+    private val ripplePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     var sizeLevel = 1
         set(value) { if (field != value) { field = value; invalidate() } }
 
@@ -610,9 +646,55 @@ internal class OrbButton(context: Context) : View(context) {
         contentDescription = description
         if (res == iconRes) return
         iconRes = res
+        val old = icon
         icon = ContextCompat.getDrawable(context, res)?.mutate()?.apply { setTint(Color.WHITE) }
-        invalidate()
+        swapAnim?.cancel()
+        if (old == null || !isAttachedToWindow) {
+            oldIcon = null
+            swap = 1f
+            invalidate()
+            return
+        }
+        oldIcon = old
+        swapAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = SWAP_MS
+            interpolator = EASE
+            addUpdateListener {
+                swap = it.animatedValue as Float
+                invalidate()
+            }
+            doOnEnd { oldIcon = null }
+            start()
+        }
     }
+
+    // While a picked colour flies to the dot, the dot keeps the colour it had.
+    private var heldInk: Int? = null
+
+    /** Keeps the dot's colour until [pulse]: a colour is on its way to it. */
+    fun holdInk() {
+        if (heldInk == null) heldInk = inkColor
+    }
+
+    /** A ring spreads from the ink dot: the colour just landed there. */
+    fun pulse() {
+        heldInk = null
+        rippleAnim?.cancel()
+        invalidate()
+        if (!isAttachedToWindow) return
+        rippleAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = RIPPLE_MS
+            interpolator = EASE
+            addUpdateListener {
+                ripple = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    // How much bigger the ink dot is drawn: it swells as the ripple leaves it, then settles.
+    private fun dotSwell() = if (ripple >= 1f) 1f else 1f + 0.35f * sin(PI * min(1f, ripple * 2.2f)).toFloat()
 
     private fun badgeX() = width / 2f + BADGE_DISTANCE * 0.866f * resources.displayMetrics.density
     private fun badgeY() = height / 2f - BADGE_DISTANCE * 0.5f * resources.displayMetrics.density
@@ -620,7 +702,7 @@ internal class OrbButton(context: Context) : View(context) {
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             downOnBadge = kotlin.math.hypot(event.x - badgeX(), event.y - badgeY()) <= dp(21f)
-            val dot = dp(34f) * 0.62f
+            val dot = dp(OrbStyle.INK_DOT_DP)
             downOnDot = !downOnBadge && kotlin.math.hypot(event.x - width / 2f - dot, event.y - height / 2f - dot) <= dp(17f)
         }
         return super.dispatchTouchEvent(event)
@@ -629,7 +711,7 @@ internal class OrbButton(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val r = dp(34f)
+        val r = dp(OrbStyle.ORB_RADIUS_DP)
         // Fingers on the screen (cursor) or pupils writing with them: the pen steps back.
         val faded = using || (pupilsBadge && pupilsOn)
         val layer = if (faded) canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), 140) else -1
@@ -637,17 +719,27 @@ internal class OrbButton(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, r, fill)
         rim.color = ColorUtils.blendARGB(Color.WHITE, 0xD9FFFFFF.toInt(), Chrome.dark)
         canvas.drawCircle(cx, cy, r - rim.strokeWidth / 2, rim)
-        icon?.let {
-            val s = dp(ORB_ICON_DP)
-            it.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
-            it.draw(canvas)
+        val iconSize = dp(ORB_ICON_DP)
+        val drawIcon = { d: Drawable, turn: Float, alpha: Float ->
+            val h = iconSize / 2
+            d.setBounds((cx - h).toInt(), (cy - h).toInt(), (cx + h).toInt(), (cy + h).toInt())
+            d.alpha = (255 * alpha).toInt()
+            canvas.withRotation(turn, cx, cy) { d.draw(this) }
         }
-        val dr = dp(DOT_RADII[sizeLevel.coerceIn(0, DOT_RADII.lastIndex)])
+        oldIcon?.let { drawIcon(it, SWAP_DEGREES * swap, 1f - min(1f, swap * 2f)) }
+        icon?.let { drawIcon(it, -SWAP_DEGREES * (1f - swap), swap) }
+        val dr = dp(DOT_RADII[sizeLevel.coerceIn(0, DOT_RADII.lastIndex)]) * dotSwell()
         val dx = cx + r * 0.62f
         val dy = cy + r * 0.62f
         canvas.drawCircle(dx, dy, dr + dp(2f), dotRing)
-        dot.color = inkColor
+        dot.color = heldInk ?: inkColor
         canvas.drawCircle(dx, dy, dr, dot)
+        if (ripple < 1f) {
+            ripplePaint.color = inkColor
+            ripplePaint.alpha = (200 * (1f - ripple)).toInt()
+            ripplePaint.strokeWidth = dp(3f) * (1f - ripple) + dp(0.5f)
+            canvas.drawCircle(dx, dy, dr + dp(RIPPLE_REACH_DP) * ripple, ripplePaint)
+        }
         if (layer >= 0) canvas.restoreToCount(layer)
 
         val bx = badgeX()
@@ -657,11 +749,13 @@ internal class OrbButton(context: Context) : View(context) {
         // colour of its own that would clash with some tools. White with the icon in that colour;
         // lit, filled with it and a white rim that parts it from the orb.
         val lit = if (pupilsBadge) pupilsOn else using
-        val deep = ColorUtils.blendARGB(tint, Color.BLACK, 0.18f)
+        // The colour the disc shows now (it may be blending into the next tool's).
+        val hue = fill.color
+        val deep = ColorUtils.blendARGB(hue, Color.BLACK, 0.18f)
         // Lit, like a chosen tool in the ring: full colour, white rim and a halo, so "on" reads
         // at a glance even over the orb's own colour.
         if (lit) {
-            badgeHalo.color = ColorUtils.setAlphaComponent(tint, 0x66)
+            badgeHalo.color = ColorUtils.setAlphaComponent(hue, 0x66)
             canvas.drawCircle(bx, by, br + dp(5f), badgeHalo)
         }
         // At rest it is made of the controls' material (graphite on a dark board), the icon in the tool's colour.
@@ -672,7 +766,7 @@ internal class OrbButton(context: Context) : View(context) {
         badgeRing.color = if (lit) Color.WHITE else ColorUtils.blendARGB(ColorUtils.setAlphaComponent(deep, 0x59), Chrome.hairline, Chrome.dark)
         canvas.drawCircle(bx, by, br - badgeRing.strokeWidth / 2, badgeRing)
         val mark = if (pupilsBadge) pupilsIcon else cursor
-        mark.setTint(if (lit) Color.WHITE else ColorUtils.blendARGB(deep, ColorUtils.blendARGB(tint, Color.WHITE, 0.45f), Chrome.dark))
+        mark.setTint(if (lit) Color.WHITE else ColorUtils.blendARGB(deep, ColorUtils.blendARGB(hue, Color.WHITE, 0.45f), Chrome.dark))
         val s = dp(if (pupilsBadge) 19f else 17f)
         mark.setBounds((bx - s / 2).toInt(), (by - s / 2).toInt(), (bx + s / 2).toInt(), (by + s / 2).toInt())
         mark.draw(canvas)
@@ -694,6 +788,13 @@ internal class OrbButton(context: Context) : View(context) {
 
         /** The tool's icon on the 68 dp disc: large enough to read from the back of the class. */
         const val ORB_ICON_DP = 38f
+
+        val EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
+        const val TINT_MS = 220L
+        const val SWAP_MS = 220L
+        const val SWAP_DEGREES = 40f
+        const val RIPPLE_MS = 460L
+        const val RIPPLE_REACH_DP = 16f
     }
 }
 

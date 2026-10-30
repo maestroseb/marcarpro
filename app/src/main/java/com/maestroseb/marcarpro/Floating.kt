@@ -72,6 +72,8 @@ internal class Floater(
      * through, the window goes [hideAfter] ms later, once its closing animation is over.
      */
     fun setTouchable(touchable: Boolean, hideAfter: Long = HIDE_AFTER_MS) {
+        // Opening again while a closing is under way: it no longer closes.
+        if (touchable) view.removeCallbacks(release)
         val flags = if (touchable) {
             params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         } else {
@@ -83,7 +85,23 @@ internal class Floater(
         // An empty window must be GONE, not just transparent: Android 12+ blocks touches that pass
         // through another app's visible window (keyboards and apps under it stopped responding).
         view.removeCallbacks(hide)
+        view.removeCallbacks(release)
         if (touchable) view.visibility = View.VISIBLE else view.postDelayed(hide, hideAfter)
+    }
+
+    /**
+     * Closes after a closing animation of [after] ms: the window keeps catching touches until
+     * then and goes in one step. Android 12+ dims an untouchable overlay to 80 %, which would
+     * show as a sudden fade at the start of the animation.
+     */
+    fun closeAfter(after: Long) {
+        view.removeCallbacks(hide)
+        view.removeCallbacks(release)
+        view.postDelayed(release, after)
+    }
+
+    private val release = Runnable {
+        setTouchable(false, hideAfter = 0)
     }
 
     private val hide = Runnable {

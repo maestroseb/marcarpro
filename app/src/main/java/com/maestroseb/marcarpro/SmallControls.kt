@@ -922,6 +922,18 @@ internal class QuickColorView(context: Context) : View(context) {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
 
+    /** Comes back with a small bounce, [delay] ms after the call. */
+    fun pop(delay: Long) {
+        animate().cancel()
+        scaleX = POP_FROM
+        scaleY = POP_FROM
+        alpha = 0f
+        animate().scaleX(1f).scaleY(1f).alpha(1f)
+            .setStartDelay(delay).setDuration(POP_MS)
+            .setInterpolator(android.view.animation.OvershootInterpolator(2f))
+            .start()
+    }
+
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
@@ -952,5 +964,7 @@ internal class QuickColorView(context: Context) : View(context) {
     private companion object {
         const val ACTIVE_DP = 11f
         const val IDLE_DP = 8f
+        const val POP_FROM = 0.4f
+        const val POP_MS = 300L
     }
 }

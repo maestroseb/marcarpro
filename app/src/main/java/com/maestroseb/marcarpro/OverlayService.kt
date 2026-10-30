@@ -86,6 +86,9 @@ class OverlayService : Service() {
         private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
         private const val QUICK_DISTANCE_DP = 54f
+        private const val QUICK_POP_STAGGER_MS = 40L
+        private const val PALETTE_FROM = 0.86f
+        private const val PALETTE_GROW_MS = 220L
         // The clear-all button's first place (its centre, from the top right corner), and the page
         // pill under it: its card's right edge lines up with the button's (40 − 16 = 24 dp).
         private const val TRASH_RIGHT_DP = 40f
@@ -380,6 +383,7 @@ class OverlayService : Service() {
         colors.visibility = View.GONE
         colors.onEmptyTap = ::closeColors
         colors.onOutside = { x, y -> if (!nearOrb(x, y)) closeColors() }
+        colors.onLanded = { orbButton?.pulse() }
         val orb = OrbButton(this)
         orbButton = orb
         // The cursor badge sticks out at two o'clock, so the orb keeps a little further from the right edge.
@@ -717,7 +721,7 @@ class OverlayService : Service() {
         // The tools go in one after another: the window stays until the last is in, and the
         // quick colours come back then (they left first when the ring opened).
         val ms = (o.close() * animatorScale()).toLong()
-        ringFloater?.setTouchable(false, hideAfter = ms + RING_HIDE_SLACK_MS)
+        ringFloater?.closeAfter(ms + RING_HIDE_SLACK_MS)
         handler.removeCallbacks(quickBack)
         handler.postDelayed(quickBack, ms)
     }
@@ -829,15 +833,18 @@ class OverlayService : Service() {
         updateQuick()
     }
 
-    private fun closeColors() {
+    /** Closes the colours; [picked] flies into the orb's dot. */
+    private fun closeColors(picked: ColorRingView.Item? = null) {
         val view = colorRing ?: return
         if (!view.isOpen) return
         // Closed without a colour: the quick colour being changed stays as it was.
         if (!quickToPalette) editingQuick = -1
-        colorFloater?.setTouchable(false)
         panel?.clearArea(PanelTouch.AREA_RING)
-        view.close()
-        updateQuick()
+        // The window stays until the colours are back in the dot (as the ring of tools does).
+        val ms = (view.close(picked) * animatorScale()).toLong()
+        colorFloater?.closeAfter(ms + RING_HIDE_SLACK_MS)
+        handler.removeCallbacks(quickBack)
+        handler.postDelayed(quickBack, ms)
     }
 
     /** Pressing the colour dot and sliding: the colours open, follow the finger, and letting go picks. */
@@ -859,8 +866,10 @@ class OverlayService : Service() {
                 toInkTool()
                 prefs.setColorFor(inkTarget(), item.color)
                 keepQuick(item.color)
+                // The dot takes the new colour when it lands there.
+                orbButton?.holdInk()
                 applyInk()
-                closeColors()
+                closeColors(item)
             }
             ColorRingView.Item.Add -> {
                 val f = orbFloater ?: return
@@ -912,7 +921,19 @@ class OverlayService : Service() {
         x = x.coerceIn(dpi(8f), screen.x - pw - dpi(8f))
         paletteParams.x = x
         paletteParams.y = y.coerceIn(dpi(8f), screen.y - ph - dpi(8f))
-        if (paletteShown) wm.updateViewLayout(p, paletteParams) else wm.addView(p, paletteParams)
+        if (paletteShown) {
+            wm.updateViewLayout(p, paletteParams)
+        } else {
+            // It grows out of what opened it: the tool, or the orb.
+            p.pivotX = (ax - paletteParams.x).toFloat().coerceIn(0f, pw.toFloat())
+            p.pivotY = (ay - paletteParams.y).toFloat().coerceIn(0f, ph.toFloat())
+            p.scaleX = PALETTE_FROM
+            p.scaleY = PALETTE_FROM
+            p.alpha = 0f
+            p.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(0).setDuration(PALETTE_GROW_MS)
+                .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start()
+            wm.addView(p, paletteParams)
+        }
         paletteShown = true
         panel?.setArea(PanelTouch.AREA_PALETTE, Rect(paletteParams.x, paletteParams.y, paletteParams.x + pw, paletteParams.y + ph))
     }
@@ -921,6 +942,7 @@ class OverlayService : Service() {
         if (!paletteShown) return
         editingQuick = -1
         palette?.let {
+            it.animate().cancel()
             runCatching { wm.removeView(it) }
             it.reset()
         }
@@ -2069,6 +2091,7 @@ class OverlayService : Service() {
         val d = dp(QUICK_DISTANCE_DP)
         val right = f.cx + d + dp(30f) < wm.screenSize().x
         val angles = if (right) QUICK_ANGLES_RIGHT else QUICK_ANGLES_LEFT
+        var popped = 0
         quickFloaters.forEachIndexed { i, q ->
             val v = q.view as QuickColorView
             if (show && i < colors.size) {
@@ -2077,13 +2100,20 @@ class OverlayService : Service() {
                 val a = Math.toRadians(angles[i])
                 q.moveTo(f.cx + (kotlin.math.cos(a) * d).toInt(), f.cy + (kotlin.math.sin(a) * d).toInt())
                 reserve(PanelTouch.AREA_QUICK + i, q)
+                // Coming back: they pop out one after another.
+                if (!quickShown[i]) v.pop(popped++ * QUICK_POP_STAGGER_MS)
+                quickShown[i] = true
             } else {
                 // Off screen, not GONE: see Floater.park.
                 q.park()
+                quickShown[i] = false
                 panel?.clearArea(PanelTouch.AREA_QUICK + i)
             }
         }
     }
+
+    // Which quick colours are on screen (the others are parked).
+    private val quickShown = BooleanArray(3)
 
     // The quick colour being changed (its second tap opened the colours), or -1.
     private var editingQuick = -1
@@ -2106,6 +2136,7 @@ class OverlayService : Service() {
         }
         prefs.setColorFor(inkTarget(), color)
         applyInk()
+        orbButton?.pulse()
     }
 
     /**
