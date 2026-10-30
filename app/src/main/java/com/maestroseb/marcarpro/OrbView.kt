@@ -244,9 +244,10 @@ internal class OrbitLayout(
             s.translationY = -s.circleOffset()
             s.scaleX = 0.3f
             s.scaleY = 0.3f
+            // withLayer: each tool (its shadow and label) is drawn once, then only moved and scaled.
             s.animate().translationX(slots[i].x).translationY(slots[i].y - s.circleOffset()).scaleX(1f).scaleY(1f).alpha(1f)
                 .setStartDelay(i * 28L).setDuration(380).setInterpolator(OvershootInterpolator(1.3f))
-                .withEndAction(null).start()
+                .withLayer().withEndAction(null).start()
         }
         animateOrbit(if (orbitVisible) 1f else 0f)
     }
@@ -307,7 +308,7 @@ internal class OrbitLayout(
             s.animate().translationX(0f).translationY(-s.circleOffset()).scaleX(0.3f).scaleY(0.3f).alpha(0f)
                 .setStartDelay((going.size - 1 - i) * CLOSE_STAGGER_MS).setDuration(CLOSE_MS)
                 .setInterpolator(AnticipateInterpolator(1.3f))
-                .withEndAction { s.visibility = INVISIBLE }.start()
+                .withLayer().withEndAction { s.visibility = INVISIBLE }.start()
         }
         return if (going.isEmpty()) 0 else (going.size - 1) * CLOSE_STAGGER_MS + CLOSE_MS
     }

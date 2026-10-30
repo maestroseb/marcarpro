@@ -43,7 +43,10 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
         data object Add : Item
     }
 
-    private class Spot(val item: Item, val x: Float, val y: Float, val r: Float, val delay: Float)
+    private class Spot(val item: Item, val x: Float, val y: Float, val r: Float, val delay: Float) {
+        /** A pale colour: it needs a dark edge (worked out once, not on every frame). */
+        val light = item is Item.Ink && ColorUtils.calculateLuminance(item.color) > 0.7
+    }
 
     private var spots = emptyList<Spot>()
     private var current = Color.BLACK
@@ -69,7 +72,9 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
     /** Called with the screen position of a touch outside this window while it is open. */
     var onOutside: ((x: Float, y: Float) -> Unit)? = null
 
-    private val disc = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(dp(6f), 0f, dp(2f), OrbStyle.SHADOW) }
+    private val disc = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shadowR = dp(6f)
+    private val shadowDy = dp(2f)
     private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(3f); color = Color.WHITE }
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x33000000 }
     private val chosen = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(3f) }
@@ -264,18 +269,23 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
             if (t <= 0f) continue
             val e = BOUNCE.getInterpolation(t)
             val grow = if (s === hovered || s === pressed) HOVER_SCALE else 1f
-            drawSpot(canvas, s, fx + (s.x - fx) * e, fy + (s.y - fy) * e, s.r * (0.25f + 0.75f * e) * grow, min(1f, t * 2.5f))
+            drawSpot(canvas, s, fx + (s.x - fx) * e, fy + (s.y - fy) * e, s.r * (0.25f + 0.75f * e) * grow, min(1f, t * 2.5f), t >= 1f)
         }
         flying?.let { s ->
             val e = flight
             // It shrinks to the size of the dot on its way, and stays solid until it lands.
             val r = s.r + (dp(LANDED_DP) - s.r) * e
-            drawSpot(canvas, s, s.x + (fx - s.x) * e, s.y + (fy - s.y) * e, r, 1f)
+            drawSpot(canvas, s, s.x + (fx - s.x) * e, s.y + (fy - s.y) * e, r, 1f, false)
         }
     }
 
-    private fun drawSpot(canvas: Canvas, s: Spot, x: Float, y: Float, r: Float, alpha: Float) {
+    /**
+     * [still]: the colour is in its place. Only then has it a shadow: a blurred shadow costs the
+     * panel's small GPU on every frame, and nobody sees it on a colour in flight.
+     */
+    private fun drawSpot(canvas: Canvas, s: Spot, x: Float, y: Float, r: Float, alpha: Float, still: Boolean) {
         val a = (255 * alpha).toInt()
+        if (still) disc.setShadowLayer(shadowR, 0f, shadowDy, OrbStyle.SHADOW) else disc.clearShadowLayer()
         when (val item = s.item) {
             is Item.Ink -> {
                 disc.color = item.color
@@ -283,9 +293,9 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
                 canvas.drawCircle(x, y, r, disc)
                 rim.alpha = a
                 canvas.drawCircle(x, y, r - dp(1.5f), rim)
-                if (ColorUtils.calculateLuminance(item.color) > 0.7) canvas.drawCircle(x, y, r, edge)
+                if (s.light) canvas.drawCircle(x, y, r, edge)
                 if (item.color == current && s !== flying) {
-                    chosen.color = if (ColorUtils.calculateLuminance(item.color) > 0.7) OrbStyle.INK else item.color
+                    chosen.color = if (s.light) OrbStyle.INK else item.color
                     chosen.alpha = a
                     canvas.drawCircle(x, y, r + dp(6f), chosen)
                 }

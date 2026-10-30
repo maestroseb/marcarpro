@@ -934,6 +934,9 @@ internal class QuickColorView(context: Context) : View(context) {
             .start()
     }
 
+    // Two plain circles: fading them needs no offscreen buffer (nor a layer, for something this small).
+    override fun hasOverlappingRendering() = false
+
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f

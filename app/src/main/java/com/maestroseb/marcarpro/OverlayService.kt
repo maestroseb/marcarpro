@@ -931,7 +931,7 @@ class OverlayService : Service() {
             p.scaleY = PALETTE_FROM
             p.alpha = 0f
             p.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(0).setDuration(PALETTE_GROW_MS)
-                .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).start()
+                .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)).withLayer().start()
             wm.addView(p, paletteParams)
         }
         paletteShown = true
