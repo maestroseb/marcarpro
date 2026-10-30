@@ -95,8 +95,20 @@ internal class Floater(
         place()
     }
 
+    /**
+     * Puts the window just off the top-left corner, still showing. For small windows that come and
+     * go often: hiding one gives it a new surface each time it comes back, and the panel showed
+     * that surface's first frame as a grey square until the next draw.
+     */
+    fun park() {
+        params.x = -params.width - PARK_GAP
+        params.y = -params.height - PARK_GAP
+        if (attached) wm.updateViewLayout(view, params)
+    }
+
     private companion object {
         const val HIDE_AFTER_MS = 400L
+        const val PARK_GAP = 16
     }
 
     /** The window's area on screen. */

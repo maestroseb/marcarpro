@@ -62,8 +62,11 @@ getevent` shows nothing on this panel (devices are grabbed) — calibrate with i
   the dots wear ink colours. Every other floating control (whiteboard button and scissors, paper
   picker, palette "save") is graphite on white (`OrbStyle.CHROME`). Teal stays only in the setup cards.
 - **Quick colour dots:** one 32 dp window each, 30° apart at 62 dp (centres 32 dp apart): the windows
-  must not overlap, or a tap on a dot's edge went to its neighbour (2026-10-29). No software layer
-  (it left each window's first frame as a grey square until pressed); shadow fits the window.
+  must not overlap, or a tap on a dot's edge went to its neighbour (2026-10-29). Never GONE: when
+  hidden their windows are parked just off screen (`Floater.park`). Hiding one gave it a new surface
+  on every return and the panel showed that surface's first frame as a grey square behind each dot
+  until it was pressed (still seen in 1.6.0; the 1.4.3 fixes — no software layer, a redraw when shown —
+  weren't enough). Shadow fits the window.
 - **Boards and pages (1.5.0, `Boards.kt`, `BoardsView.kt`):** the whiteboard opens the *quick board* (as
   before) or a saved board. Page keys: quick page 0 = the old `whiteboard:` key (file `whiteboard.mkp`, so
   older ink survived); every other page `whiteboard:<board|quick>:<n>` → file `wb_<board>_<n>.mkp` (never

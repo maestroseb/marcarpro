@@ -440,6 +440,7 @@ class OverlayService : Service() {
             // edge of one dot to its neighbour.
             val q = Floater(wm, v, dpi(QUICK_WINDOW_DP), core = dpi(QUICK_WINDOW_DP / 2))
             q.attach(orbF.cx, orbF.cy)
+            q.park()
             quickFloaters += q
         }
 
@@ -2064,10 +2065,10 @@ class OverlayService : Service() {
                 v.active = i == active
                 val a = Math.toRadians(angles[i])
                 q.moveTo(f.cx + (kotlin.math.cos(a) * d).toInt(), f.cy + (kotlin.math.sin(a) * d).toInt())
-                v.visibility = View.VISIBLE
                 reserve(PanelTouch.AREA_QUICK + i, q)
             } else {
-                v.visibility = View.GONE
+                // Off screen, not GONE: see Floater.park.
+                q.park()
                 panel?.clearArea(PanelTouch.AREA_QUICK + i)
             }
         }

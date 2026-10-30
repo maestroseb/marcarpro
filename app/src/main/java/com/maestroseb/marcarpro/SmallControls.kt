@@ -917,16 +917,9 @@ internal class QuickColorView(context: Context) : View(context) {
     }
 
     init {
-        // Shadows on circles draw on the GPU from Android 9. A software layer left the first
-        // frame of each window grey (a square behind each dot) until it was pressed.
+        // Shadows on circles draw on the GPU from Android 9. Never GONE: its window is parked off
+        // screen instead (see Floater.park), so it never shows a fresh surface's grey first frame.
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) setLayerType(LAYER_TYPE_SOFTWARE, null)
-        visibility = GONE
-    }
-
-    // Shown again: draw it now, so the window never keeps an old (empty) frame.
-    override fun onVisibilityChanged(changedView: View, visibility: Int) {
-        super.onVisibilityChanged(changedView, visibility)
-        if (visibility == VISIBLE) postInvalidateOnAnimation()
     }
 
     override fun onDraw(canvas: Canvas) {
