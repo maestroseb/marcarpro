@@ -26,8 +26,8 @@ internal fun WindowManager.screenSize(): Point =
 
 /**
  * A small overlay window positioned by its centre. [core] is the radius that must stay on
- * screen ([coreRight] towards the right edge, if something sticks out that way); the window
- * itself may be larger (the open ring) and spill over the edges.
+ * screen ([coreLeft] and [coreRight] towards the side edges, if something sticks out that way);
+ * the window itself may be larger (the open ring) and spill over the edges.
  */
 internal class Floater(
     private val wm: WindowManager,
@@ -36,6 +36,7 @@ internal class Floater(
     private val core: Int,
     flags: Int = 0,
     private val coreRight: Int = core,
+    private val coreLeft: Int = core,
 ) {
     val params = WindowManager.LayoutParams(
         size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -135,7 +136,7 @@ internal class Floater(
     fun bounds(): android.graphics.Rect = android.graphics.Rect(params.x, params.y, params.x + params.width, params.y + params.height)
 
     private fun clamp() {
-        cx = cx.coerceIn(core, (screen.x - coreRight).coerceAtLeast(core))
+        cx = cx.coerceIn(coreLeft, (screen.x - coreRight).coerceAtLeast(coreLeft))
         cy = cy.coerceIn(core, (screen.y - core).coerceAtLeast(core))
     }
 

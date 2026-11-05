@@ -87,6 +87,7 @@ class OverlayService : Service() {
         private const val PASTE_FOCUS_MS = 400L
         private const val QUICK_DISTANCE_DP = 54f
         private const val QUICK_POP_STAGGER_MS = 40L
+        private const val SIDE_MARGIN_DP = 16f
         private const val PALETTE_FROM = 0.86f
         private const val PALETTE_GROW_MS = 220L
         // The clear-all button's first place (its centre, from the top right corner), and the page
@@ -100,9 +101,7 @@ class OverlayService : Service() {
         private const val RING_HIDE_SLACK_MS = 60L
         // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
         // 36° apart at 54 dp is 33 dp between centres, a little more than each dot's window (they
-        // must not overlap). The first starts at 18°, clear of the badge at two o'clock.
-        private val QUICK_ANGLES_RIGHT = doubleArrayOf(18.0, 54.0, 90.0)
-        private val QUICK_ANGLES_LEFT = doubleArrayOf(162.0, 126.0, 90.0)
+        // must not overlap). Their angles are in OrbStyle: the orb draws them too during a drag.
         private const val QUICK_WINDOW_DP = 32f
         private const val SETUP_POLL_MS = 1000L
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
@@ -386,10 +385,13 @@ class OverlayService : Service() {
         colors.onLanded = { orbButton?.pulse() }
         val orb = OrbButton(this)
         orbButton = orb
-        // The cursor badge sticks out at two o'clock, so the orb keeps a little further from the right edge.
-        val orbF = Floater(wm, orb, dpi(110f), core = dpi(44f), coreRight = dpi(50f))
+        // The cursor badge sticks out sideways, so the orb keeps a little further from the side edges.
+        val orbF = Floater(wm, orb, dpi(110f), core = dpi(44f), coreRight = dpi(50f), coreLeft = dpi(50f))
         orbFloater = orbF
         orbF.attach(orbAt)
+        screenWidth = screen.x
+        orbMirrored = orbF.cx < screen.x / 2
+        orb.setMirrored(orbMirrored, animate = false)
         reserve(PanelTouch.AREA_ORB, orbF)
         orb.setOnTouchListener(FloatGestures(orbF, UNDO_HOLD_MS,
             // The cursor badge switches writing ↔ using the screen; while in use, the orb brings the pen back.
@@ -563,6 +565,15 @@ class OverlayService : Service() {
 
     /** Near the × the orb snaps onto it, so letting go there closes the app. */
     private fun onOrbDragged(x: Int, y: Int) {
+        // Past the middle of the screen the orb turns into its mirror image. A small margin, so a
+        // finger resting right on the middle doesn't make it turn back and forth.
+        val middle = screenWidth / 2
+        val margin = dpi(SIDE_MARGIN_DP)
+        val mirrored = x < middle + (if (orbMirrored) margin else -margin)
+        if (mirrored != orbMirrored) {
+            orbMirrored = mirrored
+            orbButton?.setMirrored(mirrored, animate = true)
+        }
         val target = closeTarget ?: return
         val t = closeFloater ?: return
         val near = hypot((x - t.cx).toFloat(), (y - t.cy).toFloat()) < dp(80f)
@@ -829,7 +840,7 @@ class OverlayService : Service() {
         reserve(PanelTouch.AREA_RING, win) // never open together with the ring of tools
         val screen = wm.screenSize()
         val colors = Presets.COLORS.toList() + prefs.customColors
-        view.open(f.cx, f.cy, screen.x, screen.y, colors, prefs.colorFor(inkTarget()))
+        view.open(f.cx, f.cy, screen.x, screen.y, colors, prefs.colorFor(inkTarget()), orbMirrored)
         updateQuick()
     }
 
@@ -2077,20 +2088,25 @@ class OverlayService : Service() {
     private var orbDragging = false
     private var controlsHidden = false
 
+    // The orb is in the left half of the screen: it shows its mirror image.
+    private var orbMirrored = false
+    private var screenWidth = 0
+
     /**
-     * The quick colours sit in a small arc beside the orb (on its right, or towards the middle
-     * when the orb is at the right edge), only while writing and with nothing else open.
+     * The quick colours sit in a small arc beside the orb, towards the middle of the screen, only
+     * while writing and with nothing else open. While the orb is dragged, the orb draws them itself.
      */
     private fun updateQuick() {
         val f = orbFloater ?: return
-        val show = !paused && !orbDragging && !controlsHidden && !cropping &&
+        val wanted = !paused && !controlsHidden && !cropping &&
             orbit?.isOpen != true && colorRing?.isOpen != true
+        val show = wanted && !orbDragging
         val colors = prefs.quickColors
         val current = prefs.colorFor(inkTarget())
         val active = colors.indexOf(current)
+        orbButton?.setGhosts(if (wanted && orbDragging) colors.toIntArray() else null, active)
         val d = dp(QUICK_DISTANCE_DP)
-        val right = f.cx + d + dp(30f) < wm.screenSize().x
-        val angles = if (right) QUICK_ANGLES_RIGHT else QUICK_ANGLES_LEFT
+        val angles = if (orbMirrored) OrbStyle.QUICK_ANGLES_RIGHT else OrbStyle.QUICK_ANGLES_LEFT
         var popped = 0
         quickFloaters.forEachIndexed { i, q ->
             val v = q.view as QuickColorView

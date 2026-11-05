@@ -23,6 +23,7 @@ import androidx.core.animation.doOnEnd
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.withRotation
+import androidx.core.graphics.withScale
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -51,6 +52,10 @@ internal object OrbStyle {
     /** The orb's radius and its ink dot's offset from the orb's centre, on each axis (dp). */
     const val ORB_RADIUS_DP = 34f
     const val INK_DOT_DP = ORB_RADIUS_DP * 0.62f
+
+    /** The quick colours around the orb (degrees, clockwise from three o'clock), on either side. */
+    val QUICK_ANGLES_RIGHT = doubleArrayOf(18.0, 54.0, 90.0)
+    val QUICK_ANGLES_LEFT = doubleArrayOf(162.0, 126.0, 90.0)
 }
 
 /**
@@ -555,7 +560,8 @@ internal class OrbitLayout(
  * The orb: in the active tool's colour (as in the ring), with the tool's icon, and a dot with the
  * ink colour and thickness. A small
  * cursor badge sits on its rim at two o'clock: tapping it switches between writing and using
- * the screen underneath.
+ * the screen underneath. In the left half of the screen it all turns into its mirror image
+ * ([setMirrored]): the dot and the badge travel round the rim and the tool's icon flips over.
  */
 @SuppressLint("ViewConstructor")
 internal class OrbButton(context: Context) : View(context) {
@@ -669,6 +675,75 @@ internal class OrbButton(context: Context) : View(context) {
         }
     }
 
+    // 0 is the look of the right half of the screen, 1 its mirror image (the left half).
+    private var side = 0f
+    private var sideAnim: ValueAnimator? = null
+
+    /** Turns to the mirror image of the orb or back, at once or moving. */
+    fun setMirrored(mirrored: Boolean, animate: Boolean) {
+        val to = if (mirrored) 1f else 0f
+        sideAnim?.cancel()
+        if (!animate || !isAttachedToWindow) {
+            side = to
+            invalidate()
+            return
+        }
+        sideAnim = ValueAnimator.ofFloat(side, to).apply {
+            duration = SIDE_MS
+            interpolator = EASE
+            addUpdateListener {
+                side = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    // The quick colours while the orb is dragged. Drawn here, close to the rim so they fit in this
+    // window: three more windows following the finger would be three more calls per move.
+    private var ghosts = IntArray(0)
+    private var ghostActive = -1
+    private var ghostGrow = 1f
+    private var ghostAnim: ValueAnimator? = null
+    private val ghostFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ghostRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.5f); color = Color.WHITE }
+    private val ghostEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x33000000 }
+
+    /** Shows [colors] on the rim ([active] is the one in use), or nothing if null. */
+    fun setGhosts(colors: IntArray?, active: Int) {
+        val coming = ghosts.isEmpty() && colors != null
+        ghosts = colors ?: IntArray(0)
+        ghostActive = active
+        if (colors == null) ghostAnim?.cancel()
+        invalidate()
+        if (!coming || !isAttachedToWindow) return
+        ghostGrow = 0f
+        ghostAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = GHOST_MS
+            interpolator = EASE
+            addUpdateListener {
+                ghostGrow = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun drawGhosts(canvas: Canvas, cx: Float, cy: Float) {
+        val left = OrbStyle.QUICK_ANGLES_LEFT
+        val right = OrbStyle.QUICK_ANGLES_RIGHT
+        for (i in ghosts.indices) {
+            val a = Math.toRadians(left[i] + (right[i] - left[i]) * side)
+            val x = cx + dp(GHOST_DISTANCE_DP) * cos(a).toFloat()
+            val y = cy + dp(GHOST_DISTANCE_DP) * sin(a).toFloat()
+            val r = dp(if (i == ghostActive) GHOST_ACTIVE_DP else GHOST_IDLE_DP) * ghostGrow
+            ghostFill.color = ghosts[i]
+            canvas.drawCircle(x, y, r, ghostFill)
+            if (i == ghostActive) canvas.drawCircle(x, y, r - dp(0.75f), ghostRim)
+            canvas.drawCircle(x, y, r, ghostEdge)
+        }
+    }
+
     // While a picked colour flies to the dot, the dot keeps the colour it had.
     private var heldInk: Int? = null
 
@@ -697,14 +772,19 @@ internal class OrbButton(context: Context) : View(context) {
     // How much bigger the ink dot is drawn: it swells as the ripple leaves it, then settles.
     private fun dotSwell() = if (ripple >= 1f) 1f else 1f + 0.35f * sin(PI * min(1f, ripple * 2.2f)).toFloat()
 
-    private fun badgeX() = width / 2f + BADGE_DISTANCE * 0.866f * resources.displayMetrics.density
-    private fun badgeY() = height / 2f - BADGE_DISTANCE * 0.5f * resources.displayMetrics.density
+    // The badge goes round over the orb, from two to ten o'clock; the dot under it, from half
+    // past four to half past seven.
+    private fun badgeAngle() = Math.toRadians(-30.0 - 120.0 * side)
+    private fun badgeX() = width / 2f + dp(BADGE_DISTANCE) * cos(badgeAngle()).toFloat()
+    private fun badgeY() = height / 2f + dp(BADGE_DISTANCE) * sin(badgeAngle()).toFloat()
+    private fun dotAngle() = Math.toRadians(45.0 + 90.0 * side)
+    private fun dotX() = width / 2f + dp(OrbStyle.INK_DOT_DP) * SQRT2 * cos(dotAngle()).toFloat()
+    private fun dotY() = height / 2f + dp(OrbStyle.INK_DOT_DP) * SQRT2 * sin(dotAngle()).toFloat()
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             downOnBadge = kotlin.math.hypot(event.x - badgeX(), event.y - badgeY()) <= dp(21f)
-            val dot = dp(OrbStyle.INK_DOT_DP)
-            downOnDot = !downOnBadge && kotlin.math.hypot(event.x - width / 2f - dot, event.y - height / 2f - dot) <= dp(17f)
+            downOnDot = !downOnBadge && kotlin.math.hypot(event.x - dotX(), event.y - dotY()) <= dp(17f)
         }
         return super.dispatchTouchEvent(event)
     }
@@ -720,18 +800,20 @@ internal class OrbButton(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, r, fill)
         rim.color = ColorUtils.blendARGB(Color.WHITE, 0xD9FFFFFF.toInt(), Chrome.dark)
         canvas.drawCircle(cx, cy, r - rim.strokeWidth / 2, rim)
+        // The tool's icon flips over like a coin, on its upright axis.
+        val flip = 1f - 2f * side
         val iconSize = dp(ORB_ICON_DP)
         val drawIcon = { d: Drawable, turn: Float, alpha: Float ->
             val h = iconSize / 2
             d.setBounds((cx - h).toInt(), (cy - h).toInt(), (cx + h).toInt(), (cy + h).toInt())
             d.alpha = (255 * alpha).toInt()
-            canvas.withRotation(turn, cx, cy) { d.draw(this) }
+            canvas.withScale(flip, 1f, cx, cy) { withRotation(turn, cx, cy) { d.draw(this) } }
         }
         oldIcon?.let { drawIcon(it, SWAP_DEGREES * swap, 1f - min(1f, swap * 2f)) }
         icon?.let { drawIcon(it, -SWAP_DEGREES * (1f - swap), swap) }
         val dr = dp(DOT_RADII[sizeLevel.coerceIn(0, DOT_RADII.lastIndex)]) * dotSwell()
-        val dx = cx + r * 0.62f
-        val dy = cy + r * 0.62f
+        val dx = dotX()
+        val dy = dotY()
         canvas.drawCircle(dx, dy, dr + dp(2f), dotRing)
         dot.color = heldInk ?: inkColor
         canvas.drawCircle(dx, dy, dr, dot)
@@ -742,6 +824,7 @@ internal class OrbButton(context: Context) : View(context) {
             canvas.drawCircle(dx, dy, dr + dp(RIPPLE_REACH_DP) * ripple, ripplePaint)
         }
         if (layer >= 0) canvas.restoreToCount(layer)
+        drawGhosts(canvas, cx, cy)
 
         val bx = badgeX()
         val by = badgeY()
@@ -770,6 +853,7 @@ internal class OrbButton(context: Context) : View(context) {
         mark.setTint(if (lit) Color.WHITE else ColorUtils.blendARGB(deep, ColorUtils.blendARGB(hue, Color.WHITE, 0.45f), Chrome.dark))
         val s = dp(if (pupilsBadge) 19f else 17f)
         mark.setBounds((bx - s / 2).toInt(), (by - s / 2).toInt(), (bx + s / 2).toInt(), (by + s / 2).toInt())
+        // The badge moves, but its drawing keeps its orientation on both sides.
         mark.draw(canvas)
     }
 
@@ -781,6 +865,8 @@ internal class OrbButton(context: Context) : View(context) {
     override fun performClick(): Boolean = super.performClick()
 
     private companion object {
+        const val SQRT2 = 1.41421356f
+
         /** Badge centre from the orb centre, in dp: it overlaps the orb's rim. */
         const val BADGE_DISTANCE = 37f
 
@@ -796,6 +882,13 @@ internal class OrbButton(context: Context) : View(context) {
         const val SWAP_DEGREES = 40f
         const val RIPPLE_MS = 460L
         const val RIPPLE_REACH_DP = 16f
+        const val SIDE_MS = 280L
+        const val GHOST_MS = 160L
+
+        /** The quick colours while dragging: they must fit in the orb's 55 dp half-window. */
+        const val GHOST_DISTANCE_DP = 44f
+        const val GHOST_ACTIVE_DP = 8.5f
+        const val GHOST_IDLE_DP = 6.5f
     }
 }
 

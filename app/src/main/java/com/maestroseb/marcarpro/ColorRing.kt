@@ -50,6 +50,7 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
 
     private var spots = emptyList<Spot>()
     private var current = Color.BLACK
+    private var mirrored = false
     private var hovered: Spot? = null
     private var pressed: Spot? = null
     private var progress = 0f
@@ -101,9 +102,11 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
     /**
      * Opens around the orb, whose centre is at ([cx], [cy]) on a [sw]×[sh] screen (the window
      * must already be centred there), with [colors] (the last one chosen being [color]).
+     * [mirrored]: the orb is in its left-half look, with the ink dot on its left.
      */
-    fun open(cx: Int, cy: Int, sw: Int, sh: Int, colors: List<Int>, color: Int) {
+    fun open(cx: Int, cy: Int, sw: Int, sh: Int, colors: List<Int>, color: Int, mirrored: Boolean) {
         current = color
+        this.mirrored = mirrored
         hovered = null
         pressed = null
         spots = layout(cx.toFloat(), cy.toFloat(), sw.toFloat(), sh.toFloat(), colors.map { Item.Ink(it) } + Item.Add)
@@ -254,7 +257,7 @@ internal class ColorRingView(context: Context, private val onItem: (Item) -> Uni
         val ox = width / 2f
         val oy = height / 2f
         // Everything comes out of (and goes back into) the orb's ink dot.
-        val fx = ox + dp(OrbStyle.INK_DOT_DP)
+        val fx = ox + dp(OrbStyle.INK_DOT_DP) * (if (mirrored) -1 else 1)
         val fy = oy + dp(OrbStyle.INK_DOT_DP)
         if (bandRadius > 0f && progress > 0f) {
             val e = EASE.getInterpolation(progress)
