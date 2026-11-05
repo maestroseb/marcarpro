@@ -25,6 +25,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.withRotation
 import androidx.core.graphics.withScale
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -85,7 +86,7 @@ internal object Chrome {
 }
 
 /** Ring items that switch something on and off instead of picking a tool. */
-internal enum class RingToggle { HIDE, PUPILS, LASSO }
+internal enum class RingToggle { HIDE, PUPILS, TEXT }
 
 /** One tool in the ring. */
 internal class RingItem(val tool: Tool?, val icon: Int, val label: String, val toggle: RingToggle? = null, val tint: Int) {
@@ -215,7 +216,7 @@ internal class OrbitLayout(
         for (s in satellites) s.active = when (s.item.toggle) {
             RingToggle.HIDE -> hidden
             RingToggle.PUPILS -> pupils
-            RingToggle.LASSO -> false // a one-off action, never "on"
+            RingToggle.TEXT -> false // a one-off action, never "on"
             null -> s.item.tool == tool
         }
     }
@@ -238,6 +239,7 @@ internal class OrbitLayout(
         screenH = sh
         val shown = shown()
         slots = placeSlots(shown.size)
+        spreadLabels(shown)
         for (s in satellites) if (s !in shown) {
             s.visibility = INVISIBLE
             s.alpha = 0f
@@ -255,6 +257,32 @@ internal class OrbitLayout(
                 .withLayer().withEndAction(null).start()
         }
         animateOrbit(if (orbitVisible) 1f else 0f)
+    }
+
+    /**
+     * On the tight arc of a fan two neighbours' labels can land on each other: each moves aside by
+     * half of what they overlap, or all of it when the other one is against the edge of the screen.
+     */
+    internal fun spreadLabels(shown: List<SatelliteView>) {
+        for (s in shown) s.labelShift = 0f
+        val gap = dp(4f)
+        val edge = dp(4f)
+        for (i in 0 until shown.lastIndex) {
+            val leftFirst = slots[i].x <= slots[i + 1].x
+            val l = if (leftFirst) i else i + 1
+            val r = if (leftFirst) i + 1 else i
+            val a = shown[l]
+            val b = shown[r]
+            if (abs(slots[l].y - slots[r].y) >= a.pillHeight + dp(2f)) continue
+            val leftEnd = slots[l].x + a.labelShift + a.pillHalf
+            val rightStart = slots[r].x + b.labelShift - b.pillHalf
+            val overlap = (leftEnd + gap - rightStart).coerceAtMost(dp(MAX_LABEL_SHIFT_DP))
+            if (overlap <= 0f) continue
+            val roomRight = screenW - edge - (openCx + slots[r].x + b.labelShift + b.pillHalf)
+            val toRight = min(overlap / 2f, max(0f, roomRight))
+            b.labelShift += toRight
+            a.labelShift -= overlap - toRight
+        }
     }
 
     /** Where each of [n] tools goes (circle centres, from the orb's centre); sets the orbit and "Done". */
@@ -357,6 +385,7 @@ internal class OrbitLayout(
     private fun relayout() {
         val shown = shown()
         slots = placeSlots(shown.size)
+        spreadLabels(shown)
         for (s in satellites) {
             if (s in shown) continue
             s.animate().scaleX(0.3f).scaleY(0.3f).alpha(0f).setStartDelay(0).setDuration(160)
@@ -540,6 +569,7 @@ internal class OrbitLayout(
         const val CLOSE_MS = 230L
         const val CLOSE_STAGGER_MS = 20L
         const val FAN_SPAN = PI
+        const val MAX_LABEL_SHIFT_DP = 60f
         /** Arc between two tools' centres, in tool widths (room for the label pills too). */
         const val STEP = 1.42
         /** The closest a tool sits to the orb's centre (the orb, a gap and the tool). */
@@ -907,6 +937,18 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
     }
     private val labelWidth = labelPaint.measureText(item.label)
     private val pillH = dp(20f)
+
+    val pillHeight get() = pillH
+    val pillHalf get() = labelWidth / 2f + dp(8f)
+
+    /** The label moved sideways, off a neighbour's ([OrbitLayout.spreadLabels]). */
+    var labelShift = 0f
+        set(value) {
+            if (field == value) return
+            field = value
+            requestLayout()
+            invalidate()
+        }
     private val disc = Paint(Paint.ANTI_ALIAS_FLAG)
 
     // At rest the controls' material (1.6: white, a hairline, a graphite icon); chosen, the tool's
@@ -949,7 +991,7 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
     private fun measuredOrEstimatedHeight() = size + dp(4f) + pillH + dp(8f)
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = max(size + dp(16f), labelWidth + dp(22f))
+        val w = max(size + dp(16f), labelWidth + dp(22f) + 2 * abs(labelShift))
         setMeasuredDimension(w.toInt(), measuredOrEstimatedHeight().toInt())
     }
 
@@ -971,12 +1013,12 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
         val top = cy + r - dp(4f)
-        val half = labelWidth / 2f + dp(8f)
-        pillRect.set(cx - half, top, cx + half, top + pillH)
+        val labelX = cx + labelShift
+        pillRect.set(labelX - pillHalf, top, labelX + pillHalf, top + pillH)
         pill.color = if (active) ColorUtils.blendARGB(item.tint, Color.BLACK, 0.12f) else OrbStyle.LABEL
         canvas.drawRoundRect(pillRect, dp(6f), dp(6f), pill)
         val baseline = top + pillH / 2f - (labelPaint.descent() + labelPaint.ascent()) / 2f
-        canvas.drawText(item.label, cx - labelWidth / 2f, baseline, labelPaint)
+        canvas.drawText(item.label, labelX - labelWidth / 2f, baseline, labelPaint)
     }
 
     override fun setPressed(pressed: Boolean) {

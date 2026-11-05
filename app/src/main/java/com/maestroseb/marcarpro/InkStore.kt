@@ -12,12 +12,13 @@ import java.nio.ByteBuffer
 /**
  * Keeps the board's ink between sessions, so closing Marcar Pro (on purpose or not) never
  * loses a lesson. A compact binary file: the whole board is a few hundred KB at most, plus any
- * pictures cut out of the screen (each as a PNG, after its corners).
+ * pictures cut out of the screen (each as a PNG, after its corners) and texts (each as UTF-8, too).
  */
 internal object InkStore {
     private const val MAGIC = 0x4D4B5031 // "MKP1"
     private const val MAX_ITEMS = 1_000_000
     private const val MAX_PICTURE = 64 * 1024 * 1024
+    private const val MAX_TEXT = 1024 * 1024
     private const val STROKE_HEADER = 23 // tool, colour, size, speed unit, group, 2 flags, point count
 
     /** Serialises on the calling thread (one pass into one buffer); the caller may write the bytes elsewhere. */
@@ -26,6 +27,7 @@ internal object InkStore {
         for (s in strokes) {
             size += STROKE_HEADER + 12 * s.points.size
             if (s.tool == InkTool.IMAGE) size += 4 + pictureData(s).size
+            if (s.tool == InkTool.TEXT) size += 4 + textData(s).size
         }
         // Big-endian, the same layout DataOutputStream wrote (old files still load).
         val out = ByteBuffer.allocate(size)
@@ -50,9 +52,16 @@ internal object InkStore {
                 out.putInt(png.size)
                 out.put(png)
             }
+            if (s.tool == InkTool.TEXT) {
+                val words = textData(s)
+                out.putInt(words.size)
+                out.put(words)
+            }
         }
         return out.array()
     }
+
+    private fun textData(s: Stroke): ByteArray = s.text.orEmpty().toByteArray(Charsets.UTF_8)
 
     /** A picture's PNG: made when it was cut out, or now if that hasn't finished yet. */
     private fun pictureData(s: Stroke): ByteArray = s.imageData ?: png(s.image!!).also { s.imageData = it }
@@ -86,6 +95,11 @@ internal object InkStore {
                     val png = ByteArray(len).also { input.readFully(it) }
                     val image = BitmapFactory.decodeByteArray(png, 0, len) ?: throw IOException("corrupt")
                     Stroke.savedPicture(image, png)
+                } else if (tool == InkTool.TEXT) {
+                    val len = input.readInt()
+                    if (len !in 0..MAX_TEXT) throw IOException("corrupt")
+                    val words = ByteArray(len).also { input.readFully(it) }
+                    Stroke.savedText(String(words, Charsets.UTF_8), color, size)
                 } else {
                     Stroke(tool, color, size, speed)
                 }

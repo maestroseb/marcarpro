@@ -6,9 +6,11 @@ import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Region
@@ -99,14 +101,23 @@ class AnnotationView(context: Context) : View(context) {
      */
     var onPasteRequest: ((x: Float, y: Float, copiedAt: Long) -> Unit)? = null
 
-    /**
-     * The ring's "Lasso": the next stroke, pen or finger, draws a lasso (instead of ink, or of
-     * moving the whiteboard) and selects what it surrounds; then everything is as before.
-     */
-    var lassoNext = false
+    /** The ring's "Text": the next touch, pen or finger, only says where it goes ([onTextPlace]). */
+    var textNext = false
 
-    // The lasso in progress came from [lassoNext] (not from holding a finger still).
-    private var lassoOnce = false
+    /** Where a new text goes, on screen. */
+    var onTextPlace: ((x: Float, y: Float) -> Unit)? = null
+
+    /** "Edit" in the selection menu. */
+    var onTextEdit: ((Stroke) -> Unit)? = null
+
+    /** A text is being typed: the board doesn't write, and a touch on it ends the typing. */
+    var typing = false
+
+    /** A touch on the board while [typing]. */
+    var onTypingTouch: (() -> Unit)? = null
+
+    // The touch going on started while typing: all of it is ignored, even once the typing is over.
+    private var swallowing = false
 
     /** Tells the host when this window gets (or loses) the keyboard focus. */
     var onFocus: ((Boolean) -> Unit)? = null
@@ -219,7 +230,7 @@ class AnnotationView(context: Context) : View(context) {
      * are applied to the strokes only when the finger lifts. DESELECT swallows a tap on empty
      * space that only cleared the selection.
      */
-    private enum class Gesture { NONE, LASSO, MOVE, SCALE, ROTATE, PINCH, DESELECT, PAN }
+    private enum class Gesture { NONE, LASSO, MOVE, SCALE, ROTATE, PINCH, DESELECT, PAN, PLACE }
 
     private var gesture = Gesture.NONE
     private var pointerId = NO_POINTER
@@ -303,7 +314,7 @@ class AnnotationView(context: Context) : View(context) {
     // Selection menu: Copy, Duplicate, colours, Delete.
     private val menuRect = RectF()
     private val menuAnchor = RectF()
-    private val menuRows = Array(4) { RectF() }
+    private val menuRows = Array(5) { RectF() }
     private val swatchX = FloatArray(Presets.COLORS.size)
 
     private val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -332,6 +343,12 @@ class AnnotationView(context: Context) : View(context) {
         strokeWidth = dp(2f)
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
+    }
+    private val leaderLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeWidth = dp(1.5f)
+        pathEffect = DashPathEffect(floatArrayOf(dp(7f), dp(5f)), 0f)
     }
     private val eraserFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x26FFFFFF }
     private val eraserShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -372,11 +389,12 @@ class AnnotationView(context: Context) : View(context) {
     private val menuDivider = Paint().apply { color = 0x14000000 }
     private val swatchPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val swatchEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x33000000 }
-    private val menuIcons = intArrayOf(R.drawable.ic_copy, R.drawable.ic_duplicate, 0, R.drawable.ic_trash).map { res ->
+    private val menuIcons = intArrayOf(R.drawable.ic_text, R.drawable.ic_copy, R.drawable.ic_duplicate, 0, R.drawable.ic_trash).map { res ->
         if (res == 0) null else ContextCompat.getDrawable(context, res)!!.mutate()
     }
     private val menuLabels = listOf(
-        context.getString(R.string.menu_copy), context.getString(R.string.menu_duplicate), "", context.getString(R.string.delete),
+        context.getString(R.string.menu_edit), context.getString(R.string.menu_copy), context.getString(R.string.menu_duplicate), "",
+        context.getString(R.string.delete),
     )
 
     /** Returns false when there was nothing to undo. */
@@ -621,6 +639,8 @@ class AnnotationView(context: Context) : View(context) {
     private fun drawStroke(canvas: Canvas, s: Stroke, opacity: Float) {
         if (s.tool == InkTool.IMAGE) {
             drawPicture(canvas, s, opacity)
+        } else if (s.tool == InkTool.TEXT) {
+            drawText(canvas, s, opacity)
         } else if (s.tool == InkTool.PEN) {
             inkPaint.color = shown(s.color)
             inkPaint.alpha = (Color.alpha(s.color) * opacity).toInt()
@@ -644,20 +664,35 @@ class AnnotationView(context: Context) : View(context) {
     /** A cutout, stretched into its four corners (it may have been moved, scaled or turned). */
     private fun drawPicture(canvas: Canvas, s: Stroke, opacity: Float) {
         val image = s.image ?: return
-        val p = s.points
-        if (p.size != 4) return
-        pictureSrc[2] = image.width.toFloat()
-        pictureSrc[4] = image.width.toFloat()
-        pictureSrc[5] = image.height.toFloat()
-        pictureSrc[7] = image.height.toFloat()
-        for (i in 0 until 4) {
-            pictureDst[2 * i] = p[i].x
-            pictureDst[2 * i + 1] = p[i].y
-        }
-        pictureMatrix.setPolyToPoly(pictureSrc, 0, pictureDst, 0, 4)
+        if (s.points.size != 4) return
+        mapBlock(s, image.width.toFloat(), image.height.toFloat())
         picturePaint.alpha = (255 * opacity).toInt()
         canvas.drawBitmap(image, pictureMatrix, picturePaint)
         canvas.drawPath(s.path, pictureEdge)
+    }
+
+    /** A typed text, in its four corners like a cutout. */
+    private fun drawText(canvas: Canvas, s: Stroke, opacity: Float) {
+        val text = s.text ?: return
+        if (s.points.size != 4) return
+        val body = s.body ?: TextBody(context, text, s.size).also { s.body = it }
+        mapBlock(s, body.width, body.height)
+        body.paint.color = shown(s.color)
+        body.paint.alpha = (255 * opacity).toInt()
+        canvas.withMatrix(pictureMatrix) { body.layout.draw(this) }
+    }
+
+    // Sets [pictureMatrix] to take a w × h rectangle to the block's corners.
+    private fun mapBlock(s: Stroke, w: Float, h: Float) {
+        pictureSrc[2] = w
+        pictureSrc[4] = w
+        pictureSrc[5] = h
+        pictureSrc[7] = h
+        for (i in 0 until 4) {
+            pictureDst[2 * i] = s.points[i].x
+            pictureDst[2 * i + 1] = s.points[i].y
+        }
+        pictureMatrix.setPolyToPoly(pictureSrc, 0, pictureDst, 0, 4)
     }
 
     private val pictureSrc = FloatArray(8)
@@ -699,6 +734,7 @@ class AnnotationView(context: Context) : View(context) {
             drawErasers(canvas)
             if (gesture == Gesture.LASSO && lassoArmed) drawLasso(canvas)
         }
+        drawTextLeader(canvas)
         // The selection box and the menu are drawn in screen coordinates: on a zoomed whiteboard they
         // keep their size (and their handles stay as easy to grab).
         if (selection.isNotEmpty() && !inkHidden) drawSelection(canvas)
@@ -927,7 +963,9 @@ class AnnotationView(context: Context) : View(context) {
         val pad = dp(8f)
         // Pictures have no colour: with only pictures selected, the colours row is left out.
         val colours = selection.any { it.tool != InkTool.IMAGE }
-        val rows = if (colours) menuRows.size else menuRows.size - 1
+        // A text on its own can be corrected.
+        val editable = selection.singleOrNull()?.tool == InkTool.TEXT
+        val rows = menuRows.size - (if (colours) 0 else 1) - (if (editable) 0 else 1)
         val h = pad * 2 + row * rows
         val gap = dp(16f)
         val margin = dp(8f)
@@ -945,7 +983,7 @@ class AnnotationView(context: Context) : View(context) {
         menuRect.set(x, y, x + w, y + h)
         var top = y + pad
         menuRows.forEachIndexed { i, rr ->
-            if (i == COLOUR_ROW && !colours) {
+            if ((i == COLOUR_ROW && !colours) || (i == EDIT_ROW && !editable)) {
                 rr.setEmpty()
             } else {
                 rr.set(x, top, x + w, top + row)
@@ -1008,6 +1046,11 @@ class AnnotationView(context: Context) : View(context) {
     @android.annotation.SuppressLint("ClickableViewAccessibility") // performClick() is called from handle()
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!annotating) return false
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            swallowing = typing
+            if (typing) onTypingTouch?.invoke()
+        }
+        if (swallowing) return true
         if (camera.isIdentity) return handle(e, e)
         // On a moved or zoomed whiteboard, the ink logic works in board coordinates.
         camera.invert(inverse)
@@ -1127,8 +1170,10 @@ class AnnotationView(context: Context) : View(context) {
             onMenuTap(sx, sy)
             return
         }
-        if (lassoNext && gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && contact != Contact.ERASER) {
-            beginLasso(e, i, x, y)
+        if (textNext && gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && contact != Contact.ERASER) {
+            clearSelection()
+            pointerId = e.getPointerId(i)
+            gesture = Gesture.PLACE
             return
         }
         // On the whiteboard a second finger on empty space zooms (and pans) the paper.
@@ -1244,7 +1289,7 @@ class AnnotationView(context: Context) : View(context) {
                 liveMatrix.postTranslate(mx - pinchX, my - pinchY)
                 invalidate()
             }
-            Gesture.DESELECT, Gesture.PAN, Gesture.NONE -> Unit
+            Gesture.DESELECT, Gesture.PAN, Gesture.PLACE, Gesture.NONE -> Unit
         }
     }
 
@@ -1255,12 +1300,6 @@ class AnnotationView(context: Context) : View(context) {
             Gesture.LASSO -> {
                 removeCallbacks(armHold)
                 when {
-                    lassoOnce -> {
-                        lassoOnce = false
-                        lassoNext = false
-                        // A tap is no lasso: it just leaves the lasso.
-                        if (travelled > touchSlop) selectWithLasso() else lasso.rewind()
-                    }
                     lassoArmed && hypot(lastX - downX, lastY - downY) < touchSlop -> {
                         lasso.rewind()
                         val ask = onPasteRequest
@@ -1288,6 +1327,10 @@ class AnnotationView(context: Context) : View(context) {
                 select(items)
             }
             Gesture.PAN -> endPan()
+            Gesture.PLACE -> {
+                textNext = false
+                onTextPlace?.invoke(raw?.getX(i) ?: e.getX(i), raw?.getY(i) ?: e.getY(i))
+            }
             Gesture.DESELECT, Gesture.NONE -> Unit
         }
         gesture = Gesture.NONE
@@ -1361,12 +1404,11 @@ class AnnotationView(context: Context) : View(context) {
             Gesture.LASSO -> {
                 removeCallbacks(armHold)
                 lassoArmed = false
-                lassoOnce = false // the ring's lasso stays ready for another try
                 lasso.rewind()
             }
             Gesture.MOVE, Gesture.SCALE, Gesture.ROTATE, Gesture.PINCH -> commitTransform()
             Gesture.PAN -> endPan()
-            Gesture.DESELECT, Gesture.NONE -> Unit
+            Gesture.DESELECT, Gesture.PLACE, Gesture.NONE -> Unit
         }
         gesture = Gesture.NONE
         pointerId = NO_POINTER
@@ -1374,11 +1416,14 @@ class AnnotationView(context: Context) : View(context) {
         invalidate()
     }
 
+    private fun showInk() {
+        if (!inkHidden) return
+        inkHidden = false
+        onInkShown?.invoke()
+    }
+
     private fun beginInk(id: Int, x: Float, y: Float, pressure: Float) {
-        if (inkHidden) {
-            inkHidden = false
-            onInkShown?.invoke()
-        }
+        showInk()
         val kind = if (tool == Tool.HIGHLIGHTER) InkTool.HIGHLIGHTER else InkTool.PEN
         val color = if (tool == Tool.MAGIC) Presets.MAGIC_COLOR else inkColor
         val stroke = Stroke(kind, color, inkSize / zoom, speedUnit = dp(14f) / zoom).also {
@@ -1515,7 +1560,8 @@ class AnnotationView(context: Context) : View(context) {
             // A cutout isn't ink: the eraser passes over it (select it to delete it).
             if (s.tool == InkTool.IMAGE || !s.hits(x, y, radius)) continue
             invalidateLayer(s.bounds)
-            val pieces = s.cut(x, y, radius)
+            // A text can't be rubbed out letter by letter: it goes whole (undo brings it back).
+            val pieces = if (s.tool == InkTool.TEXT) emptyList() else s.cut(x, y, radius)
             strokes.removeAt(index)
             eraseOps.add(History.Op(insert = false, index = index, stroke = s))
             pieces.forEachIndexed { k, piece ->
@@ -1535,7 +1581,7 @@ class AnnotationView(context: Context) : View(context) {
         // Only recent writing matters (the scale and the last few words), so skip the rest.
         // Strokes are mostly in writing order already: sort just the tail.
         // Cutouts aren't writing: a tick on one must not become part of it, nor its size set the scale.
-        val placed = strokes.takeLast(2 * GROUP_WINDOW).filter { it.tool != InkTool.IMAGE }
+        val placed = strokes.takeLast(2 * GROUP_WINDOW).filter { it.tool != InkTool.IMAGE && it.tool != InkTool.TEXT }
             .sortedBy { it.endTime }.takeLast(GROUP_WINDOW)
             .map { WordGrouper.Placed(box(it), it.group) }
         return grouper.groupFor(box(s), placed) ?: board.nextGroup++
@@ -1783,6 +1829,10 @@ class AnnotationView(context: Context) : View(context) {
         val items = selection.toList()
         if (items.isEmpty()) return
         when (row) {
+            EDIT_ROW -> {
+                clearSelection()
+                onTextEdit?.invoke(items[0])
+            }
             COPY_ROW -> {
                 clipboard.clear()
                 items.mapTo(clipboard) { it.copy() }
@@ -1818,23 +1868,6 @@ class AnnotationView(context: Context) : View(context) {
             }
             DELETE_ROW -> removeStrokes { it in selection }
         }
-        invalidate()
-    }
-
-    /** The ring's lasso: this pointer (pen or finger) draws it straight away. */
-    private fun beginLasso(e: MotionEvent, i: Int, x: Float, y: Float) {
-        clearSelection()
-        pointerId = e.getPointerId(i)
-        gesture = Gesture.LASSO
-        lassoArmed = true
-        lassoOnce = true
-        lasso.rewind()
-        lasso.moveTo(x, y)
-        lastX = x
-        lastY = y
-        downX = x
-        downY = y
-        travelled = 0f
         invalidate()
     }
 
@@ -1877,6 +1910,96 @@ class AnnotationView(context: Context) : View(context) {
         select(copies)
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
     }
+
+    // region Text
+
+    /** How [color] shows on this board (see [shown]), for what stands in for ink while typing. */
+    fun inkShown(color: Int) = shown(color)
+
+    /** A new text, its top left corner at ([x], [y]) on screen and its letters [size] px tall there. */
+    fun addText(text: String, color: Int, size: Float, x: Float, y: Float) {
+        val at = toBoard(x, y)
+        val s = textStroke(text, color, size / zoom, at[0], at[1], PointF(1f, 0f), PointF(0f, 1f))
+        s.group = board.nextGroup++
+        clearSelection()
+        showInk()
+        insertStrokes(listOf(s))
+    }
+
+    /** Takes [s] off the board while it is corrected; [endTextEdit] puts it back. */
+    fun beginTextEdit(s: Stroke) {
+        airborne.add(s)
+        invalidateLayer(s.bounds)
+        invalidate()
+    }
+
+    /** Where [s]'s top left corner is on screen, and its letter size there. */
+    fun textOnScreen(s: Stroke): FloatArray {
+        val p = floatArrayOf(s.points[0].x, s.points[0].y)
+        camera.mapPoints(p)
+        return floatArrayOf(p[0], p[1], s.size * zoom)
+    }
+
+    /**
+     * The correction of [s] is over: with [text] empty it goes, with null (or nothing changed) it
+     * stays as it was. The new one keeps its turn: it starts from ([x], [y]) along the same sides.
+     */
+    fun endTextEdit(s: Stroke, text: String?, color: Int, size: Float, x: Float, y: Float) {
+        airborne.remove(s)
+        invalidateLayer(s.bounds)
+        val index = strokes.indexOf(s)
+        val before = textOnScreen(s)
+        val same = text == s.text && color == s.color && size == before[2] && x == before[0] && y == before[1]
+        if (text == null || index < 0 || same) return
+        if (text.isEmpty()) {
+            removeStrokes { it === s }
+            return
+        }
+        val p = s.points
+        val w = hypot(p[1].x - p[0].x, p[1].y - p[0].y)
+        val h = hypot(p[3].x - p[0].x, p[3].y - p[0].y)
+        val u = PointF((p[1].x - p[0].x) / w, (p[1].y - p[0].y) / w)
+        val v = PointF((p[3].x - p[0].x) / h, (p[3].y - p[0].y) / h)
+        val at = toBoard(x, y)
+        val next = textStroke(text, color, size / zoom, at[0], at[1], u, v)
+        next.group = s.group
+        strokes[index] = next
+        history.record(History.Edited(listOf(History.Op(false, index, s), History.Op(true, index, next))))
+        invalidateLayer(next.bounds)
+    }
+
+    private fun textStroke(text: String, color: Int, size: Float, x: Float, y: Float, u: PointF, v: PointF): Stroke {
+        val body = TextBody(context, text, size)
+        return Stroke.text(text, color, size, x, y, body.width, body.height, u, v).also { it.body = body }
+    }
+
+    private fun toBoard(x: Float, y: Float): FloatArray {
+        val p = floatArrayOf(x, y)
+        camera.invert(inverse)
+        inverse.mapPoints(p)
+        return p
+    }
+
+    /** The dashed line from the writing card to where the text goes, or none (null). */
+    fun setTextLeader(line: FloatArray?) {
+        if (line.contentEquals(textLeader)) return
+        textLeader = line
+        invalidate()
+    }
+
+    private var textLeader: FloatArray? = null
+    private val leaderPath = Path()
+
+    private fun drawTextLeader(canvas: Canvas) {
+        val l = textLeader ?: return
+        leaderPath.rewind()
+        leaderPath.moveTo(l[0], l[1])
+        leaderPath.lineTo(l[2], l[3])
+        canvas.drawPath(leaderPath, lassoShadow)
+        canvas.drawPath(leaderPath, leaderLine)
+    }
+
+    // endregion
 
     private fun insertStrokes(items: List<Stroke>) {
         val ops = items.map { s ->
@@ -1997,10 +2120,11 @@ class AnnotationView(context: Context) : View(context) {
         const val FLIGHT_STOP_DP_PER_MS = 0.03f
         const val FLIGHT_DECAY_MS = 700f
         const val BOUNCE = 0.72f
-        const val COPY_ROW = 0
-        const val DUPLICATE_ROW = 1
-        const val COLOUR_ROW = 2
-        const val DELETE_ROW = 3
+        const val EDIT_ROW = 0
+        const val COPY_ROW = 1
+        const val DUPLICATE_ROW = 2
+        const val COLOUR_ROW = 3
+        const val DELETE_ROW = 4
         const val HIGHLIGHTER_ALPHA = 96
         const val DIRTY_MARGIN = 2f
         const val PREDICT_MAX_DP = 24f

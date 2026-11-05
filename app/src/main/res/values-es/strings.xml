@@ -123,8 +123,11 @@
     <string name="setup_updates_why">«Permitir de esta fuente», para que las mejoras se instalen solas.</string>
     <string name="images_in_settings">Activa Permisos › Fotos y vídeos › Permitir</string>
     <string name="quick_color">Color reciente</string>
-    <string name="tool_lasso">Lazo</string>
-    <string name="lasso_hint">Rodea con el dedo o el lápiz lo que quieras seleccionar</string>
+    <string name="tool_text">Texto</string>
+    <string name="text_hint">Toca donde quieras el texto, con el dedo o el lápiz</string>
+    <string name="text_type_here">Escribe aquí…</string>
+    <string name="text_done">Listo</string>
+    <string name="menu_edit">Editar</string>
     <string name="setup_overlay">Mostrar sobre otras apps</string>
     <string name="setup_overlay_why">Para escribir encima de todo. Ya está activado.</string>
     <string name="setup_notifications">Notificaciones</string>

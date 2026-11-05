@@ -3,14 +3,18 @@ package com.maestroseb.marcarpro
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
-/** What a stroke is drawn with; an [IMAGE] is a picture (a screen cutout) placed on the board. */
-enum class InkTool { PEN, HIGHLIGHTER, IMAGE }
+/**
+ * What a stroke is drawn with; an [IMAGE] is a picture (a screen cutout) placed on the board and a
+ * [TEXT] a typed text. New kinds go at the end: the saved files keep the position.
+ */
+enum class InkTool { PEN, HIGHLIGHTER, IMAGE, TEXT }
 
 /** One sampled input point, in view pixels. */
 class InkPoint(var x: Float, var y: Float, val pressure: Float)
@@ -61,11 +65,22 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
         private set
     var imageData: ByteArray? = null
 
+    /**
+     * An [InkTool.TEXT]'s words, drawn into the four [points] like a picture, so it moves, scales
+     * and turns as ink does. [size] is its letter size. [body] is its layout, made when first drawn.
+     */
+    var text: String? = null
+        private set
+    internal var body: TextBody? = null
+
+    /** Whether this is a block with four corners, not a line of ink. */
+    private val isBlock get() = tool == InkTool.IMAGE || tool == InkTool.TEXT
+
     /** Half of the widest visual width; used for hit testing. */
     val reach: Float
         get() = when (tool) {
             InkTool.HIGHLIGHTER -> size * HIGHLIGHTER_SCALE / 2f
-            InkTool.IMAGE -> 0f
+            InkTool.IMAGE, InkTool.TEXT -> 0f
             InkTool.PEN -> size / 2f
         }
 
@@ -127,6 +142,7 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
         it.points.addAll(run)
         it.image = image
         it.imageData = imageData
+        it.text = text
         it.group = group
         it.startTime = startTime
         it.endTime = endTime
@@ -184,7 +200,7 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
         if (x < bounds.left - radius || x > bounds.right + radius ||
             y < bounds.top - radius || y > bounds.bottom + radius
         ) return false
-        if (tool == InkTool.IMAGE) return insideQuad(x, y)
+        if (isBlock) return insideQuad(x, y)
         val r = radius + reach
         if (points.size == 1) return hypot(x - points[0].x, y - points[0].y) <= r
         for (i in 1 until points.size) {
@@ -224,6 +240,22 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
                 points.add(InkPoint(left, bottom, 1f))
                 finish()
             }
+
+        /** A text with its corners at ([x], [y]), ([x] + [u] · [w], …): [u] and [v] are the unit sides. */
+        fun text(text: String, color: Int, size: Float, x: Float, y: Float, w: Float, h: Float, u: PointF, v: PointF): Stroke =
+            Stroke(InkTool.TEXT, color, size, 1f).apply {
+                this.text = text
+                points.add(InkPoint(x, y, 1f))
+                points.add(InkPoint(x + u.x * w, y + u.y * w, 1f))
+                points.add(InkPoint(x + u.x * w + v.x * h, y + u.y * w + v.y * h, 1f))
+                points.add(InkPoint(x + v.x * h, y + v.y * h, 1f))
+                finish()
+            }
+
+        /** Rebuilds a saved text (its corners are added by the reader). */
+        internal fun savedText(text: String, color: Int, size: Float) = Stroke(InkTool.TEXT, color, size, 1f).apply {
+            this.text = text
+        }
 
         /** Rebuilds a saved picture (its corners are added by the reader). */
         internal fun savedPicture(image: Bitmap, data: ByteArray) = Stroke(InkTool.IMAGE, 0, 0f, 1f).apply {
@@ -289,8 +321,8 @@ internal object StrokeGeometry {
         when (s.tool) {
             InkTool.PEN -> outline(s, path, sc)
             InkTool.HIGHLIGHTER -> centerline(s, path, sc)
-            InkTool.IMAGE -> {
-                // The picture's outline, through its corners.
+            InkTool.IMAGE, InkTool.TEXT -> {
+                // The block's outline, through its corners.
                 path.moveTo(s.points[0].x, s.points[0].y)
                 for (i in 1 until s.points.size) path.lineTo(s.points[i].x, s.points[i].y)
                 path.close()

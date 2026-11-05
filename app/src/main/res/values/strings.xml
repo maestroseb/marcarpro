@@ -124,8 +124,11 @@
     <string name="setup_updates_why">“Allow from this source”, so improvements install themselves.</string>
     <string name="images_in_settings">Turn on Permissions › Photos and videos › Allow</string>
     <string name="quick_color">Recent colour</string>
-    <string name="tool_lasso">Lasso</string>
-    <string name="lasso_hint">Draw around what you want to select, with a finger or the pen</string>
+    <string name="tool_text">Text</string>
+    <string name="text_hint">Tap where you want the text, with a finger or the pen</string>
+    <string name="text_type_here">Write here…</string>
+    <string name="text_done">Done</string>
+    <string name="menu_edit">Edit</string>
     <string name="setup_overlay">Display over other apps</string>
     <string name="setup_overlay_why">To write on top of everything. Already on.</string>
     <string name="setup_notifications">Notifications</string>

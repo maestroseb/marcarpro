@@ -299,6 +299,9 @@ class OverlayService : Service() {
             onInkShown = { refresh() }
             onMessage = { toast(it) }
             onPasteRequest = { x, y, copiedAt -> pasteFromClipboard(x, y, copiedAt) }
+            onTextPlace = ::newText
+            onTextEdit = ::editText
+            onTypingTouch = { textEditor?.finish(commit = true) }
         }
         canvas = ink
         wm.addView(ink, canvasParams)
@@ -346,12 +349,14 @@ class OverlayService : Service() {
             RingItem(Tool.MAGIC, R.drawable.ic_magic, getString(R.string.tool_magic), tint = 0xFFC2255C.toInt()),
             RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
             RingItem(null, R.drawable.ic_pupils, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
-            RingItem(null, R.drawable.ic_lasso, getString(R.string.tool_lasso), RingToggle.LASSO, tint = 0xFF1C7ED6.toInt()),
+            RingItem(null, R.drawable.ic_text, getString(R.string.tool_text), RingToggle.TEXT, tint = 0xFF1C7ED6.toInt()),
         )
         ringItems = ring
         // First time: against the right edge, a little above the middle (clear of the panel's own side tab).
         val orbAt = prefs.position("orb", Point(screen.x - dpi(64f), (screen.y * 0.4f).toInt()))
-        val orbitView = OrbitLayout(this, ring, prefs.ringOrder, prefs.ringHidden, ::onRingItem)
+        // "Text" took the place of "Lasso" (1.7) in the teacher's order.
+        val ringOrder = prefs.ringOrder.map { if (it == "LASSO") RingToggle.TEXT.name else it }
+        val orbitView = OrbitLayout(this, ring, ringOrder, prefs.ringHidden, ::onRingItem)
         orbit = orbitView
         orbitView.onOrderChanged = { order, hidden ->
             prefs.ringOrder = order
@@ -528,6 +533,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        textEditor?.finish(commit = true)
         TouchRelayService.onPageChanged = null
         TouchRelayService.onConnected = null
         handler.removeCallbacksAndMessages(null)
@@ -685,6 +691,7 @@ class OverlayService : Service() {
             return
         }
         pendingPage = null
+        textEditor?.finish(commit = true)
         handler.removeCallbacks(saveInk)
         saveNow()
         hidePalette()
@@ -783,13 +790,13 @@ class OverlayService : Service() {
                 togglePupils()
                 return
             }
-            RingToggle.LASSO -> {
-                // One lasso, with the finger or the pen, on any screen; then back to how it was.
+            RingToggle.TEXT -> {
+                // The next touch, with the finger or the pen, on any screen, says where it goes.
                 hidePalette()
                 closeRing()
                 if (paused) togglePause()
-                ink.lassoNext = true
-                toast(R.string.lasso_hint)
+                ink.textNext = true
+                toast(R.string.text_hint)
                 return
             }
             null -> Unit
@@ -806,6 +813,64 @@ class OverlayService : Service() {
         prefs.tool = tool
         applyInk() // each tool has its own colour
     }
+
+    // region Text
+
+    private var textEditor: TextEditor? = null
+
+    // The text on the board being corrected, or null for a new one.
+    private var textInHand: Stroke? = null
+
+    private fun textEditor() = textEditor ?: TextEditor(this, wm).also { ed ->
+        textEditor = ed
+        ed.onDone = ::onTextDone
+        ed.onLeader = { canvas?.setTextLeader(it) }
+        ed.shownColor = { canvas?.inkShown(it) ?: it }
+        ed.onAreas = { card, spot, keyboard ->
+            panel?.setArea(PanelTouch.AREA_TEXT_CARD, card)
+            panel?.setArea(PanelTouch.AREA_TEXT_SPOT, spot)
+            panel?.setArea(PanelTouch.AREA_TEXT_KEYBOARD, keyboard)
+        }
+    }
+
+    /** A new text where the teacher tapped: the first line's middle on the tap. */
+    private fun newText(x: Float, y: Float) {
+        val i = prefs.textSize
+        val size = dp(TextEditor.SIZES_DP[i])
+        startTyping(x, y - size * 0.6f, "", prefs.colorFor(Tool.PEN), size, i)
+    }
+
+    private fun editText(s: Stroke) {
+        val ink = canvas ?: return
+        val (x, y, size) = ink.textOnScreen(s)
+        ink.beginTextEdit(s)
+        textInHand = s
+        startTyping(x, y, s.text.orEmpty(), s.color, size, TextEditor.SIZES_DP.indexOfFirst { dp(it) == size })
+    }
+
+    private fun startTyping(x: Float, y: Float, text: String, color: Int, size: Float, sizeIndex: Int) {
+        lastActivity = SystemClock.uptimeMillis()
+        hidePalette()
+        closeRing()
+        closeColors()
+        canvas?.typing = true
+        textEditor().open(x, y, text, color, size, sizeIndex)
+    }
+
+    private fun onTextDone(d: TextEditor.Draft?) {
+        val ink = canvas ?: return
+        ink.typing = false
+        lastActivity = SystemClock.uptimeMillis()
+        if (d != null && d.sizeIndex >= 0) prefs.textSize = d.sizeIndex
+        val s = textInHand
+        textInHand = null
+        when {
+            s != null -> ink.endTextEdit(s, d?.text, d?.color ?: s.color, d?.size ?: 0f, d?.x ?: 0f, d?.y ?: 0f)
+            d != null && d.text.isNotEmpty() -> ink.addText(d.text, d.color, d.size, d.x, d.y)
+        }
+    }
+
+    // endregion
 
     private fun showPalette(tool: Tool, anchor: View) {
         val loc = IntArray(2).also { anchor.getLocationOnScreen(it) }
@@ -1002,6 +1067,7 @@ class OverlayService : Service() {
     private var pausedBeforeWhiteboard = false
 
     private fun toggleWhiteboard() {
+        textEditor?.finish(commit = true)
         if (!whiteboard) {
             // (Kept when the whiteboard comes back after a cut-out.)
             pausedBeforeWhiteboard = pausedBeforeWhiteboard || paused
@@ -1334,6 +1400,7 @@ class OverlayService : Service() {
      * goes to the whiteboard, under the cutouts already there, with room below to write.
      */
     private fun startCrop() {
+        textEditor?.finish(commit = true)
         if (cropping) return
         if (external) {
             // The panel gives apps no picture of the PC or HDMI (it refuses VIDEO_AND_OSD shots):
@@ -1706,6 +1773,7 @@ class OverlayService : Service() {
      * ink window takes no touch at all, so the finger scrolls natively and nothing lags.
      */
     private fun togglePause() {
+        textEditor?.finish(commit = true)
         // Using the screen means seeing it: the whiteboard closes first (already going to the cursor).
         if (!paused && whiteboard) {
             pausedBeforeWhiteboard = false

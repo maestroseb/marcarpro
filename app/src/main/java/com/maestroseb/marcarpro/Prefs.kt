@@ -53,6 +53,11 @@ internal class Prefs(context: Context) {
         sp.edit { putString("quick_colors", list.joinToString(",")) }
     }
 
+    /** The letter size of new texts, as a position in [TextEditor.SIZES_DP]. */
+    var textSize: Int
+        get() = sp.getInt("text_size", 1).coerceIn(TextEditor.SIZES_DP.indices)
+        set(value) = sp.edit { putInt("text_size", value) }
+
     /** The ring's tools in the teacher's order ([RingItem.key]s); empty until reordered. */
     var ringOrder: List<String>
         get() = sp.getString("ring_order", null).orEmpty().split(',').filter { it.isNotEmpty() }
