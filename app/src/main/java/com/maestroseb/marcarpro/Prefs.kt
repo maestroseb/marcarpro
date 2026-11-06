@@ -105,9 +105,11 @@ internal class Prefs(context: Context) {
         get() = sp.getString("current_board", null)
         set(value) = sp.edit { putString("current_board", value) }
 
-    var sizeIndex: Int
-        get() = sp.getInt("size", 1).coerceIn(0, Presets.SIZES_DP.lastIndex)
-        set(value) = sp.edit { putInt("size", value) }
+    /** Each ink tool keeps its own thickness; until it has one, the one all tools shared before 1.7.1. */
+    fun sizeFor(tool: Tool): Int =
+        sp.getInt("size_${tool.name}", sp.getInt("size", 1)).coerceIn(0, Presets.SIZES_DP.lastIndex)
+
+    fun setSizeFor(tool: Tool, index: Int) = sp.edit { putInt("size_${tool.name}", index) }
 
     var eraserIndex: Int
         get() = sp.getInt("eraser", 1).coerceIn(0, Presets.ERASER_DP.lastIndex)

@@ -5,11 +5,13 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.os.Build
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
@@ -90,6 +92,17 @@ class TouchRelayService : AccessibilityService() {
     }
 
     override fun onInterrupt() = Unit
+
+    /**
+     * Where the on-screen keyboard is, or an empty rect with none. A floating keyboard (the
+     * ViewBoard's) doesn't tell apps what it covers: only this list of windows knows.
+     */
+    fun keyboardBounds(): Rect {
+        val bounds = Rect()
+        runCatching { windows }.getOrNull().orEmpty()
+            .firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }?.getBoundsInScreen(bounds)
+        return bounds
+    }
 
     /** The on-screen windows of [pkg], top first. */
     private fun rootsOf(pkg: String): List<AccessibilityNodeInfo> =

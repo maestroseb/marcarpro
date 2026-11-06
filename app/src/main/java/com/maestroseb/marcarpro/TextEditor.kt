@@ -94,6 +94,9 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     /** How a colour shows on the board under the text. */
     var shownColor: (Int) -> Int = { it }
 
+    /** Where the on-screen keyboard is (empty: nowhere), or null when that can't be known. */
+    var keyboardBounds: () -> Rect? = { null }
+
     private val context = ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
     private val imm = context.getSystemService(InputMethodManager::class.java)
     private val screen = wm.screenSize()
@@ -126,6 +129,32 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     private var color = Color.BLACK
     private var inPlace = false
     private var keyboard = 0
+
+    // A floating keyboard leaves no insets: its place is read from time to time while typing on the
+    // card, as the teacher can drag it.
+    private val floating = Rect()
+    private var floatingKnown = true
+    private var waited = false
+    private val watch = object : Runnable {
+        override fun run() {
+            if (!isOpen) return
+            if (!inPlace) {
+                val read = keyboardBounds()
+                // The whole screen isn't a keyboard: it's being dragged, or its window says nothing.
+                val blurred = read != null && read.height() > screen.y * MAX_KEYBOARD_HEIGHT
+                val now = if (blurred) floating.takeUnless { it.isEmpty } else read
+                val first = !waited
+                waited = true
+                if (first || (now != null) != floatingKnown || (now ?: Rect()) != floating) {
+                    floatingKnown = now != null
+                    floating.set(now ?: Rect())
+                    arrange()
+                }
+            }
+            root?.postDelayed(this, WATCH_MS)
+        }
+    }
+    private var cardGap = 0
     private val areaColumn = Rect()
     private val areaSpot = Rect()
     private val areaKeyboard = Rect()
@@ -146,6 +175,9 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         this.sizeIndex = sizeIndex
         inPlace = hasPhysicalKeyboard()
         keyboard = 0
+        floating.setEmpty()
+        floatingKnown = true
+        waited = false
 
         field = Field(context).apply {
             setText(text)
@@ -161,6 +193,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
             onCaret = { start, end -> if (::spot.isInitialized) spot.select(start, end) }
+            onRealKey = { if (!inPlace) switchWriting() }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
@@ -255,6 +288,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         arrange(attach = false)
         wm.addView(window, rootParams)
         wm.addView(spot, spotParams)
+        window.postDelayed(watch, FIRST_WATCH_MS)
 
         card.alpha = 0f
         card.translationY = dp(RISE_DP)
@@ -322,7 +356,16 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     // Where what covers the board from below begins: the card and the keyboard, when writing on the card.
     private fun coverTop(): Int {
         if (inPlace) return screen.y
-        return screen.y - keyboard - dpi(EDGE_DP) - max(card.height, dpi(CARD_MIN_DP))
+        val keyboardTop = keyboardRect()?.top ?: screen.y
+        return min(keyboardTop, screen.y - cardGap - max(card.height, dpi(CARD_MIN_DP)))
+    }
+
+    // What the on-screen keyboard covers: read when that's possible (a floating one leaves only a
+    // thin strip in its insets), else told by its insets.
+    private fun keyboardRect(): Rect? = when {
+        !floating.isEmpty -> floating
+        keyboard > dpi(MIN_INSET_DP) -> Rect(0, screen.y - keyboard, screen.x, screen.y)
+        else -> null
     }
 
     /** Puts the card over the keyboard, or by the words when typing in place. */
@@ -337,10 +380,25 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
             lp.bottomMargin = 0
             rootParams.x = (spotParams.x - edge).coerceIn(0, max(0, screen.x - rootParams.width))
         } else {
+            val keys = keyboardRect()
+            val height = max(card.height, dpi(CARD_MIN_DP))
+            val beside = keys != null && (keys.left >= rootParams.width || screen.x - keys.right >= rootParams.width)
+            cardGap = when {
+                keys == null -> if (waited && !floatingKnown) (screen.y * UNKNOWN_KEYBOARD_TOP).toInt() else edge
+                beside -> max(edge, screen.y - keys!!.bottom) // at hand height, next to it
+                keys.top - edge - height >= edge -> screen.y - keys.top + edge // over it
+                else -> max(edge, screen.y - keys.bottom - edge - height) // dragged to the top: under it
+            }
             lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             lp.topMargin = 0
-            lp.bottomMargin = keyboard + edge
-            rootParams.x = (screen.x - rootParams.width) / 2
+            lp.bottomMargin = cardGap
+            val x = when {
+                keys == null -> (screen.x - rootParams.width) / 2
+                beside && keys.left >= rootParams.width -> keys.left - rootParams.width
+                beside -> keys.right
+                else -> keys.centerX() - rootParams.width / 2
+            }
+            rootParams.x = x.coerceIn(0, max(0, screen.x - rootParams.width))
         }
         card.layoutParams = lp
         if (attach && isOpen) {
@@ -362,7 +420,10 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
 
         val column = Rect(rootParams.x, 0, rootParams.x + rootParams.width, screen.y)
         val spotNow = Rect(spotParams.x, spotParams.y, spotParams.x + spotParams.width, spotParams.y + spotParams.height)
-        val typed = Rect(0, screen.y - keyboard, screen.x, screen.y).takeIf { keyboard > 0 } ?: Rect()
+        val typed = keyboardRect()?.let(::Rect) ?: when {
+            !inPlace && waited && !floatingKnown -> Rect(0, (screen.y * (1f - UNKNOWN_KEYBOARD_TOP)).toInt(), screen.x, screen.y)
+            else -> Rect()
+        }
         if (column == areaColumn && typed == areaKeyboard && areaSpot.contains(spotNow)) return
         areaColumn.set(column)
         areaKeyboard.set(typed)
@@ -374,6 +435,13 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     @SuppressLint("AppCompatCustomView")
     private class Field(context: Context) : EditText(context) {
         var onCaret: ((Int, Int) -> Unit)? = null
+        var onRealKey: (() -> Unit)? = null
+
+        // A key of a real keyboard, seen before the on-screen one takes it: there is one after all.
+        override fun dispatchKeyEventPreIme(e: KeyEvent): Boolean {
+            if (e.action == KeyEvent.ACTION_DOWN && e.isPrintingKey && e.device?.isVirtual == false) onRealKey?.invoke()
+            return super.dispatchKeyEventPreIme(e)
+        }
 
         override fun onSelectionChanged(selStart: Int, selEnd: Int) {
             super.onSelectionChanged(selStart, selEnd)
@@ -388,6 +456,14 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         private const val CARD_DP = 660f
         private const val CARD_MIN_DP = 150f
         private const val AREA_ROOM_DP = 160f
+        private const val MIN_INSET_DP = 100f
+        private const val MAX_KEYBOARD_HEIGHT = 0.75f
+        private const val FIRST_WATCH_MS = 250L
+        private const val WATCH_MS = 400L
+
+        // Without the accessibility service a floating keyboard can't be located: the card stays
+        // over the part of the screen it opens on (the lower 45 %).
+        private const val UNKNOWN_KEYBOARD_TOP = 0.45f
         private const val EDGE_DP = 16f
         private const val FIELD_SP = 22f
         private const val FIELD_LINES = 3

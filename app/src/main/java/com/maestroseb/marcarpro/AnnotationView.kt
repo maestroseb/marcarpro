@@ -236,7 +236,10 @@ class AnnotationView(context: Context) : View(context) {
     private var pointerId = NO_POINTER
 
     // Ink and erasers are tracked per pointer, so several pupils can write and rub out at once.
-    private class Eraser(var x: Float, var y: Float, val radius: Float)
+    private class Eraser(var x: Float, var y: Float, val base: Float, var at: Long) {
+        var radius = base
+        var speed = 0f
+    }
 
     /** A stroke being written, with the tool it was started with (the tool may change meanwhile). */
     private class Live(val stroke: Stroke, val tool: Tool) {
@@ -1215,7 +1218,7 @@ class AnnotationView(context: Context) : View(context) {
                 clearSelection()
                 if (tool == Tool.ERASER) {
                     if (inkHidden) return
-                    beginErase(id, x, y, eraserSize / 2f / zoom)
+                    beginErase(id, x, y, eraserSize / 2f / zoom, e.eventTime)
                 } else {
                     beginInk(id, x, y, e.getPressure(i))
                 }
@@ -1224,7 +1227,7 @@ class AnnotationView(context: Context) : View(context) {
                 requestUnbufferedDispatch(e)
                 clearSelection()
                 // A fist or palm rubs out a generous, adjustable area, like a real board eraser.
-                beginErase(id, x, y, eraserSize / zoom)
+                beginErase(id, x, y, eraserSize / zoom, e.eventTime)
             }
             Contact.FINGER -> beginFinger(e, i, x, y)
         }
@@ -1456,8 +1459,8 @@ class AnnotationView(context: Context) : View(context) {
         for ((id, r) in erasing) {
             val i = e.findPointerIndex(id)
             if (i < 0) continue
-            for (h in 0 until e.historySize) eraseTo(r, e.getHistoricalX(i, h), e.getHistoricalY(i, h))
-            eraseTo(r, e.getX(i), e.getY(i))
+            for (h in 0 until e.historySize) eraseTo(r, e.getHistoricalX(i, h), e.getHistoricalY(i, h), e.getHistoricalEventTime(h))
+            eraseTo(r, e.getX(i), e.getY(i), e.eventTime)
             changed = true
         }
         if (changed) invalidate()
@@ -1513,8 +1516,8 @@ class AnnotationView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun beginErase(id: Int, x: Float, y: Float, radius: Float) {
-        val r = Eraser(x, y, radius)
+    private fun beginErase(id: Int, x: Float, y: Float, radius: Float, time: Long) {
+        val r = Eraser(x, y, radius, time)
         erasing[id] = r
         eraseAt(x, y, radius)
         invalidate()
@@ -1537,9 +1540,25 @@ class AnnotationView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun eraseTo(r: Eraser, x: Float, y: Float) {
+    /**
+     * A hand sweeping fast means a big area is going: the eraser grows with the speed, at once,
+     * and shrinks back gently, so careful rubbing keeps the size the teacher chose.
+     */
+    private fun growEraser(r: Eraser, moved: Float, time: Long) {
+        val dt = time - r.at
+        if (dt <= 0) return
+        r.at = time
+        val speed = moved * zoom / dp(1f) / dt // dp per ms on screen, whatever the zoom
+        r.speed += (speed - r.speed) * ERASER_SPEED_SMOOTHING
+        val push = ((r.speed - ERASER_SLOW) / (ERASER_FAST - ERASER_SLOW)).coerceIn(0f, 1f)
+        val target = min(r.base * (1f + (ERASER_GROWTH - 1f) * push), max(r.base, dp(ERASER_MAX_DP) / zoom))
+        r.radius += (target - r.radius) * (if (target > r.radius) ERASER_GROW_RATE else ERASER_SHRINK_RATE)
+    }
+
+    private fun eraseTo(r: Eraser, x: Float, y: Float, time: Long) {
         // Step along the path so fast swipes never skip over thin strokes.
         val d = hypot(x - r.x, y - r.y)
+        growEraser(r, d, time)
         val steps = max(1, (d / (r.radius / 2f)).toInt())
         val fromX = r.x
         val fromY = r.y
@@ -2091,6 +2110,15 @@ class AnnotationView(context: Context) : View(context) {
         // pen tip ≈ 1.4, finger ≈ 3.2, fist ≈ 27–40.
         const val IR_DIGITIZER = "IRtouch"
         const val IR_PEN_MAX = 2.2f
+
+        // The eraser's speed in dp per ms: a careful rub stays under SLOW, a sweep of the arm passes FAST.
+        const val ERASER_SLOW = 0.35f
+        const val ERASER_FAST = 1.3f
+        const val ERASER_GROWTH = 3f
+        const val ERASER_MAX_DP = 220f
+        const val ERASER_SPEED_SMOOTHING = 0.3f
+        const val ERASER_GROW_RATE = 0.35f
+        const val ERASER_SHRINK_RATE = 0.06f
         const val IR_PALM_MIN = 15f
         const val FADE_MS = 220L
 

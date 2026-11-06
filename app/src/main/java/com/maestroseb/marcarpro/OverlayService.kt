@@ -826,6 +826,7 @@ class OverlayService : Service() {
         ed.onDone = ::onTextDone
         ed.onLeader = { canvas?.setTextLeader(it) }
         ed.shownColor = { canvas?.inkShown(it) ?: it }
+        ed.keyboardBounds = { TouchRelayService.instance?.keyboardBounds() }
         ed.onAreas = { card, spot, keyboard ->
             panel?.setArea(PanelTouch.AREA_TEXT_CARD, card)
             panel?.setArea(PanelTouch.AREA_TEXT_SPOT, spot)
@@ -881,6 +882,12 @@ class OverlayService : Service() {
     private fun inkTarget(): Tool = when (val t = canvas?.tool) {
         Tool.PEN, Tool.HIGHLIGHTER, Tool.SHAPE -> t
         else -> Tool.PEN
+    }
+
+    // Whose thickness a card shows: magic ink writes with the pen's, and from the eraser a thickness means "write".
+    private fun sizeOwner(tool: Tool): Tool = when (tool) {
+        Tool.PEN, Tool.HIGHLIGHTER, Tool.SHAPE -> tool
+        else -> inkTarget()
     }
 
     /** Picking a colour while erasing (or with magic ink) means "write". */
@@ -970,7 +977,7 @@ class OverlayService : Service() {
         val orbF = orbFloater ?: return
         paletteTool = tool
         paletteAnchor.set(ax, ay)
-        p.showFor(tool, prefs.colorFor(tool), prefs.sizeIndex, prefs.eraserIndex, prefs.customColors)
+        p.showFor(tool, prefs.colorFor(tool), prefs.sizeFor(sizeOwner(tool)), prefs.eraserIndex, prefs.customColors)
         p.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         val pw = p.measuredWidth
         val ph = p.measuredHeight
@@ -1042,7 +1049,7 @@ class OverlayService : Service() {
                 if (pick.save) prefs.addCustomColor(pick.color)
                 keepQuick(pick.color, done = false)
             }
-            is PaletteView.Pick.Size -> prefs.sizeIndex = pick.index
+            is PaletteView.Pick.Size -> prefs.setSizeFor(sizeOwner(paletteTool), pick.index)
             is PaletteView.Pick.Eraser -> prefs.eraserIndex = pick.index
         }
         // A colour or thickness from the orb's dot while erasing (or with magic ink) means "write".
@@ -2110,7 +2117,7 @@ class OverlayService : Service() {
     private fun applyInk() {
         val ink = canvas ?: return
         ink.inkColor = prefs.colorFor(ink.tool)
-        ink.inkSize = dp(Presets.SIZES_DP[prefs.sizeIndex])
+        ink.inkSize = dp(Presets.SIZES_DP[prefs.sizeFor(inkTarget())])
         ink.eraserSize = dp(Presets.ERASER_DP[prefs.eraserIndex])
         refresh()
     }
@@ -2138,7 +2145,7 @@ class OverlayService : Service() {
             orbButton?.apply {
                 setIcon(icon, "${getString(label)} · ${getString(modeLabel())}")
                 inkColor = if (ink.tool == Tool.MAGIC) Presets.MAGIC_COLOR else prefs.colorFor(ink.tool)
-                sizeLevel = prefs.sizeIndex
+                sizeLevel = prefs.sizeFor(inkTarget())
                 using = paused
                 pupilsBadge = whiteboard && !paused
                 pupilsOn = prefs.fingerMode == FingerMode.WRITE
