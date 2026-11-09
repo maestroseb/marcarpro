@@ -175,6 +175,7 @@ class AnnotationView(context: Context) : View(context) {
             field = value
             linePaint.color = if (value.dark) 0x2EFFFFFF else 0x241F2329
             staffPaint.color = if (value.dark) 0x5CFFFFFF else 0x4D1F2329
+            bodyPaint.color = staffPaint.color
             gridPaint.color = if (value.dark) 0x40FFFFFF else 0x2E1F2329
             redrawLayer()
         }
@@ -196,6 +197,11 @@ class AnnotationView(context: Context) : View(context) {
     private val staffPaint = Paint().apply {
         color = 0x4D1F2329
         strokeWidth = dp(1.2f)
+    }
+    // The two middle lines of a Montessori row: darker and a little thicker, to see the letters' body at a glance.
+    private val bodyPaint = Paint().apply {
+        color = 0x4D1F2329
+        strokeWidth = dp(2f)
     }
     private var gridLines = FloatArray(0)
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -797,19 +803,31 @@ class AnnotationView(context: Context) : View(context) {
         }
         val ry0 = origin[1] - kotlin.math.floor(origin[1] / period) * period - period
         val ruled = (height / period).toInt() + 2
+        var strong = 0
         val need = (ruled * offsets.size + cols) * 4
         if (gridLines.size < need) gridLines = FloatArray(need)
         var n = 0
-        for (r in 0 until ruled) {
-            val y = ry0 + r * period
-            for (o in offsets) {
-                val yy = y + o * step
-                gridLines[n++] = 0f; gridLines[n++] = yy; gridLines[n++] = width.toFloat(); gridLines[n++] = yy
+        // Montessori: the two middle lines (the letters' body) go in a second, darker batch.
+        val strongFrom = if (paperStyle == Paper.MONTESSORI) MONTESSORI_STRONG else offsets.size
+        for (pass in 0..1) {
+            if (pass == 1) strong = n
+            for (r in 0 until ruled) {
+                val y = ry0 + r * period
+                for (i in offsets.indices) {
+                    if ((i >= strongFrom) != (pass == 1)) continue
+                    val yy = y + offsets[i] * step
+                    gridLines[n++] = 0f; gridLines[n++] = yy; gridLines[n++] = width.toFloat(); gridLines[n++] = yy
+                }
             }
         }
         if (paperStyle == Paper.GRID) for (c in 0 until cols) {
             val x = x0 + c * step
             gridLines[n++] = x; gridLines[n++] = 0f; gridLines[n++] = x; gridLines[n++] = height.toFloat()
+        }
+        if (paperStyle == Paper.MONTESSORI) {
+            canvas.drawLines(gridLines, 0, strong, linePaint)
+            canvas.drawLines(gridLines, strong, n - strong, bodyPaint)
+            return
         }
         canvas.drawLines(gridLines, 0, n, if (paperStyle == Paper.STAFF) staffPaint else linePaint)
     }
@@ -2296,6 +2314,8 @@ class AnnotationView(context: Context) : View(context) {
         // proportions of the school notebooks' "Montessori 3,5".
         const val MONTESSORI_PERIOD = 1.93f
         val MONTESSORI_LINES = floatArrayOf(0f, 0.07f, 0.75f, 1.25f)
+        /** From this line on (the two middle ones) a Montessori row is drawn darker, to stand out. */
+        const val MONTESSORI_STRONG = 2
         // A staff: five lines 0.45 squares apart (16 dp: room for handwritten notes), every 3.5 squares.
         const val STAFF_PERIOD = 3.5f
         val STAFF_LINES = floatArrayOf(0f, 0.45f, 0.9f, 1.35f, 1.8f)
