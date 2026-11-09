@@ -80,6 +80,7 @@ internal fun hasPhysicalKeyboard(): Boolean = InputDevice.getDeviceIds().any { i
  * the card: its height is what tells how much the keyboard covers. A tap outside ends the typing.
  */
 internal class TextEditor(context: Context, private val wm: WindowManager) {
+    private val prefs = Prefs(context)
 
     /** What was typed: [text] goes with its top left corner at ([x], [y]) on screen. */
     class Draft(val text: String, val color: Int, val size: Float, val sizeIndex: Int, val x: Float, val y: Float)
@@ -173,7 +174,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         this.color = color
         this.size = size
         this.sizeIndex = sizeIndex
-        inPlace = hasPhysicalKeyboard()
+        inPlace = hasPhysicalKeyboard() || System.currentTimeMillis() - prefs.realKeyAt < REAL_KEY_MEMORY_MS
         keyboard = 0
         floating.setEmpty()
         floatingKnown = true
@@ -193,7 +194,10 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
             onCaret = { start, end -> if (::spot.isInitialized) spot.select(start, end) }
-            onRealKey = { if (!inPlace) switchWriting() }
+            onRealKey = {
+                prefs.realKeyAt = System.currentTimeMillis()
+                if (!inPlace) switchWriting() else hideOnScreenKeyboard()
+            }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
@@ -218,7 +222,11 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
                 this@TextEditor.size = dp(SIZES_DP[it])
                 refreshSpot()
             }
-            onKeyboard = ::switchWriting
+            onKeyboard = {
+                switchWriting()
+                // Chosen by hand: the on-screen keyboard until a real key is typed again.
+                if (!inPlace) prefs.realKeyAt = 0L
+            }
             onDone = { finish(commit = true) }
         }
         val width = min(dpi(CARD_DP), screen.x - 2 * dpi(EDGE_DP))
@@ -322,14 +330,31 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         inPlace = !inPlace
         bar.inPlace = inPlace
         layOutField()
-        if (inPlace) imm.hideSoftInputFromWindow(field.windowToken, 0) else imm.showSoftInput(field, 0)
+        if (inPlace) {
+            hideOnScreenKeyboard()
+        } else {
+            imm.showSoftInput(field, 0)
+        }
         spot.caret = inPlace
         refreshSpot()
         arrange()
     }
 
+    /** Hides the on-screen keyboard, now and after the key being handled (it may bring it back). */
+    private fun hideOnScreenKeyboard() {
+        val hide = {
+            imm.hideSoftInputFromWindow(field.windowToken, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) field.windowInsetsController?.hide(android.view.WindowInsets.Type.ime())
+        }
+        hide()
+        field.post(hide)
+    }
+
     // In place the field stays (it takes the keys) but doesn't show: the words are in the spot.
     private fun layOutField() {
+        // With a real keyboard the on-screen one mustn't come back on its own (a panel that passes the
+        // keys through a virtual device doesn't tell Android a keyboard is there, so it would).
+        field.showSoftInputOnFocus = !inPlace
         field.alpha = if (inPlace) 0f else 1f
         field.layoutParams = field.layoutParams.apply { height = if (inPlace) 1 else LinearLayout.LayoutParams.WRAP_CONTENT }
         val pad = dpi(16f)
@@ -439,7 +464,9 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
 
         // A key of a real keyboard, seen before the on-screen one takes it: there is one after all.
         override fun dispatchKeyEventPreIme(e: KeyEvent): Boolean {
-            if (e.action == KeyEvent.ACTION_DOWN && e.isPrintingKey && e.device?.isVirtual == false) onRealKey?.invoke()
+            // A printing key not sent by an on-screen keyboard is a real one, even when the panel
+            // passes it on through a virtual device (as CVTE panels do with a USB keyboard).
+            if (e.action == KeyEvent.ACTION_DOWN && e.isPrintingKey && (e.flags and KeyEvent.FLAG_SOFT_KEYBOARD) == 0) onRealKey?.invoke()
             return super.dispatchKeyEventPreIme(e)
         }
 
@@ -452,6 +479,9 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     companion object {
         /** The bar's letter sizes (dp on screen): for labels, for headings, for titles. */
         val SIZES_DP = floatArrayOf(28f, 44f, 68f)
+
+        /** After a real key is typed, texts open for that keyboard for this long (a school day). */
+        private const val REAL_KEY_MEMORY_MS = 10L * 60 * 60 * 1000
 
         private const val CARD_DP = 660f
         private const val CARD_MIN_DP = 150f

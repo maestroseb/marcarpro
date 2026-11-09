@@ -78,6 +78,15 @@ internal class Prefs(context: Context) {
     }
 
     /** The whiteboard's background (dots at first). */
+    /**
+     * When a real keyboard was last typed on in a text (wall clock, ms). Some panels hand Android the
+     * keys of a USB keyboard through a virtual device, so no keyboard shows in the device list: a key
+     * typed recently is the only sign one is there. 0 = the on-screen keyboard was chosen by hand.
+     */
+    var realKeyAt: Long
+        get() = sp.getLong("real_key_at", 0L)
+        set(value) = sp.edit { putLong("real_key_at", value) }
+
     var paper: Paper
         get() = Paper.entries.firstOrNull { it.name == sp.getString("paper", null) } ?: Paper.DOTS
         set(value) = sp.edit { putString("paper", value.name) }
