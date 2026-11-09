@@ -106,6 +106,8 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     private lateinit var card: LinearLayout
     private lateinit var field: Field
     private lateinit var bar: TextBar
+    private var cardWidth = 0
+    private lateinit var tail: Tail
     private lateinit var spot: TextSpot
     private val rootParams = WindowManager.LayoutParams(
         0, 0, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -229,6 +231,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
             }
         }
         val width = min(dpi(CARD_DP), screen.x - 2 * dpi(EDGE_DP))
+        cardWidth = width
         card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             isClickable = true
@@ -277,6 +280,8 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
             insets
         }
         window.addView(card, FrameLayout.LayoutParams(width, FrameLayout.LayoutParams.WRAP_CONTENT))
+        tail = Tail(context).apply { elevation = card.elevation + dp(0.5f) }
+        window.addView(tail, FrameLayout.LayoutParams(dpi(Tail.WIDTH_DP), dpi(Tail.HEIGHT_DP), Gravity.TOP or Gravity.START))
         root = window
         rootParams.width = width + 2 * dpi(EDGE_DP)
         rootParams.height = screen.y
@@ -399,9 +404,20 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         if (inPlace) {
             val h = dpi(TextBar.HEIGHT_DP)
             val above = spotParams.y - edge - h
-            lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            // Only as wide as its keys, starting where the words start.
+            lp.width = min(cardWidth, dpi(TextBar.WIDTH_DP))
+            lp.gravity = Gravity.TOP or Gravity.START
+            lp.leftMargin = edge
             lp.topMargin = if (above >= edge) above else spotParams.y + spotParams.height + edge
             lp.bottomMargin = 0
+            // The little point that ties the keys to the words they change.
+            val tp = tail.layoutParams as FrameLayout.LayoutParams
+            val th = dpi(Tail.HEIGHT_DP)
+            tail.down = above >= edge
+            tp.leftMargin = edge + dpi(Tail.INSET_DP)
+            tp.topMargin = if (tail.down) lp.topMargin + h + 1 - dpi(1f) else lp.topMargin - th + dpi(1f)
+            tail.layoutParams = tp
+            tail.visibility = View.VISIBLE
             rootParams.x = (spotParams.x - edge).coerceIn(0, max(0, screen.x - rootParams.width))
         } else {
             val keys = keyboardRect()
@@ -413,6 +429,9 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
                 keys.top - edge - height >= edge -> screen.y - keys.top + edge // over it
                 else -> max(edge, screen.y - keys.bottom - edge - height) // dragged to the top: under it
             }
+            lp.width = cardWidth
+            lp.leftMargin = 0
+            tail.visibility = View.GONE
             lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             lp.topMargin = 0
             lp.bottomMargin = cardGap
@@ -651,72 +670,105 @@ private class TextBar(context: Context, private var color: Int, private var size
         textAlign = Paint.Align.CENTER
     }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f) }
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x33000000 }
-    private val step = dp(STEP_DP)
-    private val dotStep = dp(DOT_STEP_DP)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f) }
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
+    private val box = RectF()
+    private val corner = dp(12f)
+    private val keyW = dp(KEY_DP)
+    private val sizeW = dp(SIZE_DP)
+    private val dotW = dp(DOT_STEP_DP)
+    private val gap = dp(GAP_DP)
 
-    // Centres, from the left: the keyboard key, the sizes, then the colours; the whole row centred.
-    private var ox = 0f
-    private val keyX get() = ox + dp(14f) + step / 2
-    private fun sizeX(i: Int) = keyX + step * (i + 1) + dp(6f)
-    private fun dotX(i: Int) = sizeX(TextEditor.SIZES_DP.lastIndex) + step / 2 + dp(14f) + dotStep * (i + 0.5f)
+    // Three groups from the left, split by hairlines: the keyboard key, the sizes, the colours.
+    // From the left, so the keyboard icon lines up with the words on the card above it.
+    private val ox = dp(PAD_DP)
+    private val keyX get() = ox + keyW / 2
+    private val firstDivider get() = ox + keyW + gap
+    private fun sizeX(i: Int) = firstDivider + gap + sizeW * (i + 0.5f)
+    private val secondDivider get() = sizeX(TextEditor.SIZES_DP.lastIndex) + sizeW / 2 + gap
+    private val swatchX get() = secondDivider + gap + keyW / 2
+
+    // The colours in a fixed 4 × 2 grid, so each one stays where the hand learnt it.
+    private fun dotX(i: Int) = swatchX + keyW / 2 + dp(SWATCH_GAP_DP) + dotW * (i % COLUMNS + 0.5f)
+    private fun dotY(i: Int) = height / 2f + dotW * (i / COLUMNS - 0.5f)
 
     private var downOn = NOTHING
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        ox = 0f
-        val content = dotX(Presets.COLORS.lastIndex) + dotStep / 2 + dp(14f)
-        ox = max(0f, (w - content) / 2f)
-    }
 
     init {
         contentDescription = context.getString(R.string.tool_text)
     }
 
+    // The ink as it reads on the bar: white ink on a white bar (or black on a graphite one) takes
+    // the bar's own text colour, so the letters and the ring never vanish.
+    private fun readable(c: Int) = if (ColorUtils.calculateContrast(c, Chrome.surface) < LOW_CONTRAST) Chrome.text else c
+
     override fun onDraw(canvas: Canvas) {
         val cy = height / 2f
-        fill.color = if (inPlace) Chrome.pressed else OrbStyle.TEAL
-        canvas.drawCircle(keyX, cy, dp(19f), fill)
-        keyIcon.setTint(if (inPlace) Chrome.icon else Color.WHITE)
-        val k = dpi(13f)
+        val surface = Chrome.surface
+        // The keyboard key: tinted teal while the on-screen keyboard is the one in use.
+        val k = dp(14f)
+        if (!inPlace) {
+            fill.color = ColorUtils.setAlphaComponent(OrbStyle.TEAL, if (Chrome.dark > 0.5f) 0x55 else 0x24)
+            box.set(keyX - keyW / 2, cy - keyW / 2, keyX + keyW / 2, cy + keyW / 2)
+            canvas.drawRoundRect(box, corner, corner, fill)
+        }
+        keyIcon.setTint(if (inPlace) Chrome.icon else ColorUtils.blendARGB(TEAL_INK, TEAL_INK_DARK, Chrome.dark))
         keyIcon.setBounds((keyX - k).toInt(), (cy - k).toInt(), (keyX + k).toInt(), (cy + k).toInt())
         keyIcon.draw(canvas)
 
+        fill.color = Chrome.hairline
+        val half = dp(14f)
+        canvas.drawRect(firstDivider - dp(0.5f), cy - half, firstDivider + dp(0.5f), cy + half, fill)
+        canvas.drawRect(secondDivider - dp(0.5f), cy - half, secondDivider + dp(0.5f), cy + half, fill)
+
+        // The sizes, as "Aa" at their real proportions and in the chosen ink.
+        val ink = readable(color)
         for (i in TextEditor.SIZES_DP.indices) {
             val x = sizeX(i)
             if (i == sizeIndex) {
                 fill.color = Chrome.pressed
-                canvas.drawCircle(x, cy, dp(19f), fill)
+                box.set(x - sizeW / 2, cy - keyW / 2, x + sizeW / 2, cy + keyW / 2)
+                canvas.drawRoundRect(box, corner, corner, fill)
             }
-            letter.color = Chrome.icon
+            letter.color = ink
             letter.textSize = dp(LETTERS_DP[i])
-            canvas.drawText("A", x, cy - (letter.descent() + letter.ascent()) / 2f, letter)
+            canvas.drawText("Aa", x, cy - (letter.descent() + letter.ascent()) / 2f, letter)
         }
-        Presets.COLORS.forEachIndexed { i, c ->
-            val x = dotX(i)
-            fill.color = c
-            canvas.drawCircle(x, cy, dp(DOT_DP), fill)
-            if (ColorUtils.calculateLuminance(c) > 0.7) canvas.drawCircle(x, cy, dp(DOT_DP), edge)
-            if (c == color) {
-                ring.color = Chrome.icon
-                canvas.drawCircle(x, cy, dp(DOT_DP + 4.5f), ring)
-            }
+
+        // The ink in use, large, then every colour small with a ring on the chosen one.
+        swatch(canvas, swatchX, cy, dp(SWATCH_DP), color, surface, false)
+        Presets.COLORS.forEachIndexed { i, c -> swatch(canvas, dotX(i), dotY(i), dp(DOT_DP), c, surface, c == color) }
+    }
+
+    private fun swatch(canvas: Canvas, x: Float, y: Float, r: Float, c: Int, surface: Int, ringed: Boolean) {
+        fill.color = c
+        canvas.drawCircle(x, y, r, fill)
+        if (ColorUtils.calculateContrast(c, surface) < LOW_CONTRAST) {
+            edge.color = ColorUtils.setAlphaComponent(Chrome.text, 0x4D)
+            canvas.drawCircle(x, y, r - dp(0.5f), edge)
+        }
+        if (ringed) {
+            ring.color = readable(c)
+            canvas.drawCircle(x, y, r + dp(3.5f), ring)
         }
     }
 
-    private fun itemAt(x: Float): Int {
-        if (abs(x - keyX) <= step / 2) return KEY
-        for (i in TextEditor.SIZES_DP.indices) if (abs(x - sizeX(i)) <= step / 2) return SIZE + i
-        for (i in Presets.COLORS.indices) if (abs(x - dotX(i)) <= dotStep / 2) return COLOUR + i
+    private fun itemAt(x: Float, y: Float): Int {
+        if (abs(x - keyX) <= keyW / 2 + gap) return KEY
+        for (i in TextEditor.SIZES_DP.indices) if (abs(x - sizeX(i)) <= sizeW / 2) return SIZE + i
+        // The grid's outer rows reach to the bar's edges, so a slightly high or low touch still counts.
+        for (i in Presets.COLORS.indices) {
+            val rowHit = if (i / COLUMNS == 0) y < height / 2f else y >= height / 2f
+            if (abs(x - dotX(i)) <= dotW / 2 && rowHit) return COLOUR + i
+        }
         return NOTHING
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> downOn = itemAt(e.x)
-            MotionEvent.ACTION_UP -> if (downOn != NOTHING && itemAt(e.x) == downOn) pick(downOn)
+            MotionEvent.ACTION_DOWN -> downOn = itemAt(e.x, e.y)
+            MotionEvent.ACTION_UP -> if (downOn != NOTHING && itemAt(e.x, e.y) == downOn) pick(downOn)
         }
         return true
     }
@@ -738,13 +790,65 @@ private class TextBar(context: Context, private var color: Int, private var size
 
     companion object {
         const val HEIGHT_DP = 64f
-        private const val STEP_DP = 44f
-        private const val DOT_STEP_DP = 37f
-        private const val DOT_DP = 12f
-        private val LETTERS_DP = floatArrayOf(15f, 20f, 26f)
+
+        /** All its keys, with the side margins: 2 × 12 + 44 + 4 × 10 + 3 × 52 + 44 + 6 + 4 × 30. */
+        const val WIDTH_DP = 434f
+        private const val PAD_DP = 12f
+        private const val KEY_DP = 44f
+        private const val SIZE_DP = 52f
+        private const val GAP_DP = 10f
+        private const val DOT_STEP_DP = 30f
+        private const val DOT_DP = 9f
+        private const val SWATCH_DP = 15f
+        private const val SWATCH_GAP_DP = 6f
+        private const val COLUMNS = 4
+        private const val LOW_CONTRAST = 1.6
+        private const val TEAL_INK = 0xFF2F6E6B.toInt()
+        private const val TEAL_INK_DARK = 0xFF7CC4C0.toInt()
+        private val LETTERS_DP = floatArrayOf(17f, 23f, 30f)
         private const val NOTHING = -1
         private const val KEY = 0
         private const val SIZE = 10
         private const val COLOUR = 20
+    }
+}
+
+/** A small point on the bar's edge, towards the words, in the bar's own material. */
+private class Tail(context: Context) : View(context) {
+    var down = true
+        set(value) {
+            if (field != value) invalidate()
+            field = value
+        }
+
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
+    private val path = Path()
+
+    init {
+        outlineProvider = null // no shadow of its own: it is part of the bar
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val base = dp(1.5f) // overlaps the bar's edge, hiding it under the point
+        path.reset()
+        if (down) {
+            path.moveTo(0f, 0f); path.lineTo(w / 2, h - dp(0.5f)); path.lineTo(w, 0f)
+        } else {
+            path.moveTo(0f, h); path.lineTo(w / 2, dp(0.5f)); path.lineTo(w, h)
+        }
+        fill.color = Chrome.surface
+        canvas.drawPath(path, fill)
+        if (down) canvas.drawRect(0f, 0f, w, base, fill) else canvas.drawRect(0f, h - base, w, h, fill)
+        line.color = Chrome.hairline
+        canvas.drawPath(path, line)
+    }
+
+    companion object {
+        const val WIDTH_DP = 22f
+        const val HEIGHT_DP = 10f
+        const val INSET_DP = 22f
     }
 }
