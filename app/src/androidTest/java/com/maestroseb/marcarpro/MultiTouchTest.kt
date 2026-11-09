@@ -284,6 +284,59 @@ class MultiTouchTest {
     }
 
     @Test
+    fun aThrownPictureKnocksAnotherAway() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val blue = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        val green = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF2F9E44.toInt()) }
+        InkStore.write(
+            whiteboard,
+            InkStore.encode(listOf(
+                Stroke.picture(blue, null, 300f, 400f, 500f, 550f).apply { group = 1 },
+                Stroke.picture(green, null, 1000f, 400f, 1200f, 550f).apply { group = 2 },
+            )),
+        )
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+        // A quick flick to the right, straight at the green one.
+        gesture(listOf(List(9) { k -> PointF(400f + k * 50f, 475f) }))
+        Thread.sleep(3500)
+        shot("knocked_away")
+        stopLayer()
+        val (first, second) = InkStore.read(whiteboard).filter { it.tool == InkTool.IMAGE }.sortedBy { it.bounds.left }
+        // As heavy as each other: the thrown one all but stops, the green one takes the speed on.
+        assertTrue("the green one was knocked on, now at ${second.bounds.left}", second.bounds.left > 1150f)
+        assertTrue("they don't overlap", first.bounds.right <= second.bounds.left + 2f)
+    }
+
+    @Test
+    fun aWordIsKnockedAwayWhole() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val blue = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        fun letter(x: Float) = Stroke(InkTool.PEN, android.graphics.Color.BLACK, 6f, 14f).apply {
+            for (k in 0..10) add(x + k * 4f, 420f + k * 10f, 0.5f)
+            finish()
+            group = 3
+        }
+        InkStore.write(
+            whiteboard,
+            InkStore.encode(listOf(Stroke.picture(blue, null, 300f, 400f, 500f, 550f).apply { group = 1 }, letter(1000f), letter(1080f))),
+        )
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+        gesture(listOf(List(9) { k -> PointF(400f + k * 50f, 475f) }))
+        Thread.sleep(3500)
+        shot("word_knocked")
+        stopLayer()
+        val (a, b) = InkStore.read(whiteboard).filter { it.tool == InkTool.PEN }.sortedBy { it.bounds.left }
+        assertTrue("the word was knocked on, now at ${a.bounds.left}", a.bounds.left > 1050f)
+        assertEquals("its letters moved together", 80f, b.bounds.left - a.bounds.left, 1f)
+    }
+
+    @Test
     fun aZoomedPictureCanBeResizedByItsCorner() {
         prefs.fingerMode = FingerMode.APPS
         prefs.stylusSeen = true

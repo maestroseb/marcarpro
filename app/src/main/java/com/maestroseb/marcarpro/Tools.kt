@@ -3,8 +3,10 @@ package com.maestroseb.marcarpro
 /** What the pen does. Fingers and fists follow their own rules (see [AnnotationView]). */
 enum class Tool { PEN, HIGHLIGHTER, ERASER, MAGIC, SHAPE }
 
-/** The whiteboard's background; DOUBLE is the school "doble pauta" (pairs of lines), STAFF music staves. */
-enum class Paper { BLANK, DOTS, GRID, LINES, DOUBLE, STAFF }
+/** The whiteboard's background; DOUBLE is the school "doble pauta" (pairs of lines), STAFF music staves,
+ * MONTESSORI the four-line "pauta Montessori" (a thin pair between rows, the letters' body narrower than
+ * the bands above and below it). */
+enum class Paper { BLANK, DOTS, GRID, LINES, DOUBLE, MONTESSORI, STAFF }
 
 /**
  * The whiteboard's paper colour. On a [dark] one, black ink is shown white (it stays black, and

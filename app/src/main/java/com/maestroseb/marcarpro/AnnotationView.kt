@@ -287,8 +287,22 @@ class AnnotationView(context: Context) : View(context) {
     private val velocity = VelocityTracker.obtain()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     /** A thrown object sliding on by itself; several can fly at once, each landing on its own. */
-    private class Flight(val items: List<Stroke>, val matrix: Matrix, val bounds: RectF, val area: RectF, var vx: Float, var vy: Float) {
+    private class Flight(
+        val items: List<Stroke>, val matrix: Matrix, val bounds: RectF, val area: RectF, var vx: Float, var vy: Float,
+        /** The throw this belongs to: everything it knocks away lands as one undo step. */
+        val chain: Chain,
+        /** Words it lay on when it set off: it slides over them instead of knocking them away. */
+        val ignore: HashSet<Int>,
+    ) {
         var time = SystemClock.uptimeMillis()
+        /** Heavier the bigger it is (its box's area, with a floor so a thin line still weighs something). */
+        val mass = kotlin.math.max(bounds.width() * bounds.height(), 1f)
+        val now = RectF()
+    }
+
+    private class Chain {
+        val changes = ArrayList<History.Change>()
+        var flying = 0
     }
 
     private val flights = ArrayList<Flight>()
@@ -428,6 +442,7 @@ class AnnotationView(context: Context) : View(context) {
             is History.Edited -> change.ops.forEach { area.union(it.stroke.bounds) }
             is History.Transformed -> change.strokes.forEach { area.union(it.bounds) }
             is History.Recolored -> change.strokes.forEach { area.union(it.bounds) }
+            is History.Several -> change.changes.forEach { unionBounds(area, it) }
         }
     }
 
@@ -776,6 +791,7 @@ class AnnotationView(context: Context) : View(context) {
         // further apart) or the five lines of a music staff (with room between staves).
         val (period, offsets) = when (paperStyle) {
             Paper.DOUBLE -> step * DOUBLE_PERIOD to DOUBLE_LINES
+            Paper.MONTESSORI -> step * MONTESSORI_PERIOD to MONTESSORI_LINES
             Paper.STAFF -> step * STAFF_PERIOD to STAFF_LINES
             else -> step to SINGLE_LINE
         }
@@ -1771,10 +1787,20 @@ class AnnotationView(context: Context) : View(context) {
         for (s in items) bounds.union(s.bounds)
         // It bounces off the edges of the screen (on the whiteboard, of the part of it on screen).
         visibleWorld()
-        flights += Flight(items, Matrix(liveMatrix), bounds, RectF(visible), vx, vy)
-        airborne.addAll(items)
+        val m = Matrix(liveMatrix)
+        val at = RectF().also { m.mapRect(it, bounds) }
+        launch(items, m, bounds, RectF(visible), vx, vy, Chain(), at)
         liveMatrix.reset()
         lifted.clear()
+    }
+
+    /** Sets [items] flying from where [m] puts them; [at] is where that is on the board. */
+    private fun launch(items: List<Stroke>, m: Matrix, bounds: RectF, area: RectF, vx: Float, vy: Float, chain: Chain, at: RectF) {
+        val ignore = HashSet<Int>()
+        for (s in strokes) if (s !in offLayer && RectF.intersects(at, s.bounds)) ignore += s.group
+        flights += Flight(items, m, bounds, area, vx, vy, chain, ignore)
+        chain.flying++
+        airborne.addAll(items)
         if (flights.size == 1) postOnAnimation(flightStep)
     }
 
@@ -1797,8 +1823,13 @@ class AnnotationView(context: Context) : View(context) {
             val k = exp(-dt / FLIGHT_DECAY_MS)
             f.vx *= k
             f.vy *= k
+        }
+        collide()
+        val left = flights.iterator()
+        while (left.hasNext()) {
+            val f = left.next()
             if (hypot(f.vx, f.vy) * zoom < dp(FLIGHT_STOP_DP_PER_MS)) {
-                it.remove()
+                left.remove()
                 land(f)
             }
         }
@@ -1806,15 +1837,104 @@ class AnnotationView(context: Context) : View(context) {
         if (flying) postOnAnimation(flightStep)
     }
 
-    /** Puts a thrown object down where it is now, as one undoable move. */
+    /**
+     * Objects in the air knock into each other and into what lies on the board, as billiard balls
+     * would: along the side where their boxes meet, each by its weight (its box's area), losing a
+     * little. A word on the board is one object (its strokes share a group), as are a picture, a
+     * text and a shape. Boxes only: a few rectangle tests per stroke and frame, and a hit word
+     * leaves the layer once, as a throw does.
+     */
+    private fun collide() {
+        for (f in flights) f.matrix.mapRect(f.now, f.bounds)
+        // Two in the air.
+        for (i in flights.indices) for (j in i + 1 until flights.size) {
+            val a = flights[i]
+            val b = flights[j]
+            if (RectF.intersects(a.now, b.now)) bounce(a, b)
+        }
+        // One in the air and one lying still.
+        if (flights.size >= MAX_FLIGHTS) return
+        for (f in flights.toList()) {
+            val hit = strokes.firstOrNull { s ->
+                s !in offLayer && s !in selection && s.group !in f.ignore && touches(f.now, s)
+            } ?: continue
+            val word = strokes.filter { it.group == hit.group && it !in offLayer && it !in selection }
+            if (word.size > MAX_KNOCKED_STROKES) continue
+            val box = RectF()
+            for (s in word) box.union(s.bounds)
+            visibleWorld()
+            val area = RectF(visible).apply { union(box) } // it may lie partly off screen: don't snap it in
+            val chain = f.chain
+            launch(word, Matrix(), box, area, 0f, 0f, chain, box)
+            invalidateLayer(box) // it leaves the layer: drawn through its flight from now on
+            val g = flights.last()
+            g.now.set(box)
+            bounce(f, g)
+            if (hypot(g.vx, g.vy) * zoom < dp(FLIGHT_STOP_DP_PER_MS)) {
+                // Too heavy to budge: it stays, and the thrown one comes back off it.
+                flights.remove(g)
+                airborne.removeAll(word.toSet())
+                chain.flying--
+                invalidateLayer(box)
+            }
+            if (flights.size >= MAX_FLIGHTS) return
+        }
+    }
+
+    /** Whether [s] really reaches into [r], not just its box (a word's box is mostly empty). */
+    private fun touches(r: RectF, s: Stroke): Boolean {
+        if (!RectF.intersects(r, s.bounds)) return false
+        if (s.tool == InkTool.IMAGE || s.tool == InkTool.TEXT) return true
+        val pad = s.reach
+        return s.points.any { p -> p.x > r.left - pad && p.x < r.right + pad && p.y > r.top - pad && p.y < r.bottom + pad }
+    }
+
+    /** A collision between [a] and [b], whose boxes overlap: pushes them apart and trades speed. */
+    private fun bounce(a: Flight, b: Flight) {
+        val ra = a.now
+        val rb = b.now
+        val ox = min(ra.right, rb.right) - kotlin.math.max(ra.left, rb.left)
+        val oy = min(ra.bottom, rb.bottom) - kotlin.math.max(ra.top, rb.top)
+        if (ox <= 0f || oy <= 0f) return
+        // The side where they meet is the one they overlap least across.
+        val alongX = ox < oy
+        val sign = if (alongX) (if (rb.centerX() >= ra.centerX()) 1f else -1f) else (if (rb.centerY() >= ra.centerY()) 1f else -1f)
+        val va = (if (alongX) a.vx else a.vy) * sign
+        val vb = (if (alongX) b.vx else b.vy) * sign
+        val total = a.mass + b.mass
+        // Apart at once, each by the other's share of the weight.
+        val gap = (if (alongX) ox else oy) * sign
+        val ka = b.mass / total
+        val kb = a.mass / total
+        if (alongX) {
+            a.matrix.postTranslate(-gap * ka, 0f); b.matrix.postTranslate(gap * kb, 0f)
+        } else {
+            a.matrix.postTranslate(0f, -gap * ka); b.matrix.postTranslate(0f, gap * kb)
+        }
+        a.matrix.mapRect(a.now, a.bounds)
+        b.matrix.mapRect(b.now, b.bounds)
+        if (va - vb <= 0f) return // already moving apart
+        val na = (va * (a.mass - RESTITUTION * b.mass) + (1 + RESTITUTION) * b.mass * vb) / total
+        val nb = (vb * (b.mass - RESTITUTION * a.mass) + (1 + RESTITUTION) * a.mass * va) / total
+        if (alongX) { a.vx = na * sign; b.vx = nb * sign } else { a.vy = na * sign; b.vy = nb * sign }
+        // What it was knocked by no longer counts as lying under it.
+        b.ignore.removeAll(a.items.mapTo(HashSet()) { it.group })
+    }
+
+    /** Puts a thrown object down where it is now; a throw and all it knocked away undo as one. */
     private fun land(f: Flight) {
         airborne.removeAll(f.items.toSet())
         for (s in f.items) invalidateLayer(s.bounds)
         if (!f.matrix.isIdentity && f.items.isNotEmpty()) {
             val scale = f.matrix.mapRadius(1f)
             for (s in f.items) s.transform(f.matrix, scale)
-            history.record(History.Transformed(f.items, Matrix(f.matrix), scale))
+            f.chain.changes += History.Transformed(f.items, Matrix(f.matrix), scale)
             for (s in f.items) invalidateLayer(s.bounds)
+        }
+        f.chain.flying--
+        if (f.chain.flying == 0 && f.chain.changes.isNotEmpty()) {
+            val c = f.chain.changes
+            history.record(if (c.size == 1) c[0] else History.Several(c.toList()))
         }
     }
 
@@ -2148,6 +2268,13 @@ class AnnotationView(context: Context) : View(context) {
         const val FLIGHT_STOP_DP_PER_MS = 0.03f
         const val FLIGHT_DECAY_MS = 700f
         const val BOUNCE = 0.72f
+
+        /** Objects knocking into each other keep this much of their speed along the hit. */
+        const val RESTITUTION = 0.6f
+        /** At most this many objects in the air at once: past it, what lies on the board stays put. */
+        const val MAX_FLIGHTS = 16
+        /** A drawing bigger than this (in strokes) is too heavy to knock away. */
+        const val MAX_KNOCKED_STROKES = 400
         const val EDIT_ROW = 0
         const val COPY_ROW = 1
         const val DUPLICATE_ROW = 2
@@ -2164,6 +2291,11 @@ class AnnotationView(context: Context) : View(context) {
         const val DOUBLE_PERIOD = 1.5f
         val SINGLE_LINE = floatArrayOf(0f)
         val DOUBLE_LINES = floatArrayOf(0f, 0.5f) // the second line half a square below
+        // Montessori ruling: a thin pair between rows, then the band for ascenders (0.68), the letters'
+        // body (0.5 squares, as in the double ruling) and the band for descenders (0.68): the
+        // proportions of the school notebooks' "Montessori 3,5".
+        const val MONTESSORI_PERIOD = 1.93f
+        val MONTESSORI_LINES = floatArrayOf(0f, 0.07f, 0.75f, 1.25f)
         // A staff: five lines 0.45 squares apart (16 dp: room for handwritten notes), every 3.5 squares.
         const val STAFF_PERIOD = 3.5f
         val STAFF_LINES = floatArrayOf(0f, 0.45f, 0.9f, 1.35f, 1.8f)

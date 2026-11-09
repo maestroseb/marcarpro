@@ -65,6 +65,7 @@
         <item>Squares</item>
         <item>Lines</item>
         <item>Double ruling</item>
+        <item>Montessori</item>
         <item>Staff</item>
     </string-array>
     <string-array name="paper_color_names">

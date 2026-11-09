@@ -64,6 +64,7 @@
         <item>Cuadros</item>
         <item>Líneas</item>
         <item>Doble pauta</item>
+        <item>Montessori</item>
         <item>Pentagrama</item>
     </string-array>
     <string-array name="paper_color_names">

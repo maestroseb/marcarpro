@@ -726,6 +726,9 @@ internal class PaperPickerView(
             Paper.DOUBLE -> for (y in floatArrayOf(0.22f, 0.4f, 0.64f, 0.82f)) {
                 canvas.drawLine(r.left + dp(3f), r.top + y * s, r.right - dp(3f), r.top + y * s, mark)
             }
+            Paper.MONTESSORI -> for (y in MONTESSORI_THUMB) {
+                canvas.drawLine(r.left + dp(3f), r.top + y * s, r.right - dp(3f), r.top + y * s, mark)
+            }
             Paper.STAFF -> for (i in 0 until 5) {
                 val y = r.top + s * (0.3f + i * 0.1f) // five lines close together: a staff
                 canvas.drawLine(r.left + dp(3f), y, r.right - dp(3f), y, mark)

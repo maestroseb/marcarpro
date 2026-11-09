@@ -29,6 +29,9 @@ internal class History(
     /** Selection recoloured; [before] holds each stroke's previous colour. */
     class Recolored(val strokes: List<Stroke>, val before: IntArray) : Change
 
+    /** Several changes undone as one (a throw and everything it knocked away). */
+    class Several(val changes: List<Change>) : Change
+
     private val done = ArrayDeque<Change>()
 
     fun record(change: Change) {
@@ -55,6 +58,7 @@ internal class History(
             }
             is Transformed -> change.strokes.forEach { it.transform(change.inverse, 1f / change.scale) }
             is Recolored -> change.strokes.forEachIndexed { i, s -> s.color = change.before[i] }
+            is Several -> change.changes.asReversed().forEach(::revert)
         }
     }
 
