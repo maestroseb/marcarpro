@@ -311,6 +311,32 @@ class MultiTouchTest {
     }
 
     @Test
+    fun aKnockOffCentreTurnsIt() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val blue = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        val green = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF2F9E44.toInt()) }
+        InkStore.write(
+            whiteboard,
+            InkStore.encode(listOf(
+                Stroke.picture(blue, null, 300f, 400f, 500f, 550f).apply { group = 1 },
+                // Lower than the thrown one: hit near its top edge.
+                Stroke.picture(green, null, 1000f, 500f, 1200f, 650f).apply { group = 2 },
+            )),
+        )
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+        gesture(listOf(List(9) { k -> PointF(400f + k * 50f, 475f) }))
+        Thread.sleep(3500)
+        shot("knock_turns")
+        stopLayer()
+        val green2 = InkStore.read(whiteboard).filter { it.tool == InkTool.IMAGE }.maxBy { it.bounds.left }
+        val (tl, tr) = green2.points
+        assertTrue("it turned: top edge from (${tl.x}, ${tl.y}) to (${tr.x}, ${tr.y})", abs(tr.y - tl.y) > 5f)
+    }
+
+    @Test
     fun aWordIsKnockedAwayWhole() {
         prefs.fingerMode = FingerMode.APPS
         prefs.stylusSeen = true

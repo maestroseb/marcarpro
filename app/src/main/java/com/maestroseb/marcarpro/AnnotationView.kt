@@ -27,6 +27,7 @@ import androidx.core.graphics.withClip
 import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withTranslation
 import androidx.input.motionprediction.MotionEventPredictor
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.exp
@@ -303,6 +304,10 @@ class AnnotationView(context: Context) : View(context) {
         var time = SystemClock.uptimeMillis()
         /** Heavier the bigger it is (its box's area, with a floor so a thin line still weighs something). */
         val mass = kotlin.math.max(bounds.width() * bounds.height(), 1f)
+        /** How hard it is to turn: a box's moment of inertia about its centre. */
+        val inertia = mass * (bounds.width() * bounds.width() + bounds.height() * bounds.height()) / 12f
+        /** Turning, in degrees per ms: a knock off its centre sets it spinning a little. */
+        var spin = 0f
         val now = RectF()
     }
 
@@ -1832,6 +1837,11 @@ class AnnotationView(context: Context) : View(context) {
             f.time = now
             val m = f.matrix
             m.postTranslate(f.vx * dt, f.vy * dt)
+            if (f.spin != 0f) {
+                m.mapRect(tmpRect, f.bounds)
+                m.postRotate(f.spin * dt, tmpRect.centerX(), tmpRect.centerY())
+                f.spin *= exp(-dt / FLIGHT_DECAY_MS)
+            }
             m.mapRect(tmpRect, f.bounds)
             val a = f.area
             if (tmpRect.left < a.left) { m.postTranslate(a.left - tmpRect.left, 0f); f.vx = abs(f.vx) * BOUNCE }
@@ -1914,6 +1924,11 @@ class AnnotationView(context: Context) : View(context) {
         val ox = min(ra.right, rb.right) - kotlin.math.max(ra.left, rb.left)
         val oy = min(ra.bottom, rb.bottom) - kotlin.math.max(ra.top, rb.top)
         if (ox <= 0f || oy <= 0f) return
+        // Where they touch: the middle of the overlap.
+        val hitX = (kotlin.math.max(ra.left, rb.left) + min(ra.right, rb.right)) / 2f
+        val hitY = (kotlin.math.max(ra.top, rb.top) + min(ra.bottom, rb.bottom)) / 2f
+        val ax = hitX - ra.centerX(); val ay = hitY - ra.centerY()
+        val bx = hitX - rb.centerX(); val by = hitY - rb.centerY()
         // The side where they meet is the one they overlap least across.
         val alongX = ox < oy
         val sign = if (alongX) (if (rb.centerX() >= ra.centerX()) 1f else -1f) else (if (rb.centerY() >= ra.centerY()) 1f else -1f)
@@ -1935,6 +1950,13 @@ class AnnotationView(context: Context) : View(context) {
         val na = (va * (a.mass - RESTITUTION * b.mass) + (1 + RESTITUTION) * b.mass * vb) / total
         val nb = (vb * (b.mass - RESTITUTION * a.mass) + (1 + RESTITUTION) * a.mass * va) / total
         if (alongX) { a.vx = na * sign; b.vx = nb * sign } else { a.vy = na * sign; b.vy = nb * sign }
+        // The push b got, along the hit: off its centre, it turns each of them a little (r × J / I).
+        val j = (nb - vb) * b.mass
+        val jx = if (alongX) j * sign else 0f
+        val jy = if (alongX) 0f else j * sign
+        val deg = (180f / PI.toFloat()) * SPIN
+        b.spin = (b.spin + (bx * jy - by * jx) / b.inertia * deg).coerceIn(-MAX_SPIN, MAX_SPIN)
+        a.spin = (a.spin - (ax * jy - ay * jx) / a.inertia * deg).coerceIn(-MAX_SPIN, MAX_SPIN)
         // What it was knocked by no longer counts as lying under it.
         b.ignore.removeAll(a.items.mapTo(HashSet()) { it.group })
     }
@@ -2289,6 +2311,10 @@ class AnnotationView(context: Context) : View(context) {
 
         /** Objects knocking into each other keep this much of their speed along the hit. */
         const val RESTITUTION = 0.6f
+        /** Share of the true turn a knock gives (a whole one looked wild on handwriting). */
+        const val SPIN = 0.25f
+        /** At most this fast a knocked object turns, in degrees per ms (a full turn in 3 s). */
+        const val MAX_SPIN = 0.12f
         /** At most this many objects in the air at once: past it, what lies on the board stays put. */
         const val MAX_FLIGHTS = 16
         /** A drawing bigger than this (in strokes) is too heavy to knock away. */
