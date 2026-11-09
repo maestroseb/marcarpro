@@ -128,7 +128,6 @@
     <string name="tool_text">Text</string>
     <string name="text_hint">Tap where you want the text, with a finger or the pen</string>
     <string name="text_type_here">Write here…</string>
-    <string name="text_done">Done</string>
     <string name="menu_edit">Edit</string>
     <string name="setup_overlay">Display over other apps</string>
     <string name="setup_overlay_why">To write on top of everything. Already on.</string>

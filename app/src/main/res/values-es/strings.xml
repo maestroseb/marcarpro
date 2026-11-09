@@ -127,7 +127,6 @@
     <string name="tool_text">Texto</string>
     <string name="text_hint">Toca donde quieras el texto, con el dedo o el lápiz</string>
     <string name="text_type_here">Escribe aquí…</string>
-    <string name="text_done">Listo</string>
     <string name="menu_edit">Editar</string>
     <string name="setup_overlay">Mostrar sobre otras apps</string>
     <string name="setup_overlay_why">Para escribir encima de todo. Ya está activado.</string>

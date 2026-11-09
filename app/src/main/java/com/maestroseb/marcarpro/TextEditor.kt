@@ -227,7 +227,6 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
                 // Chosen by hand: the on-screen keyboard until a real key is typed again.
                 if (!inPlace) prefs.realKeyAt = 0L
             }
-            onDone = { finish(commit = true) }
         }
         val width = min(dpi(CARD_DP), screen.x - 2 * dpi(EDGE_DP))
         card = LinearLayout(context).apply {
@@ -632,13 +631,12 @@ private class TextSpot(context: Context) : View(context) {
     }
 }
 
-/** The writing bar: how to write, the letter size, the colour, and "Done". */
+/** The writing bar: how to write, the letter size and the colour. A touch outside the text ends it, as in similar apps. */
 @SuppressLint("ViewConstructor")
 private class TextBar(context: Context, private var color: Int, private var sizeIndex: Int, inPlace: Boolean) : View(context) {
     var onColor: ((Int) -> Unit)? = null
     var onSize: ((Int) -> Unit)? = null
     var onKeyboard: (() -> Unit)? = null
-    var onDone: (() -> Unit)? = null
 
     /** Typing in place, not on the card. */
     var inPlace = inPlace
@@ -648,30 +646,29 @@ private class TextBar(context: Context, private var color: Int, private var size
         }
 
     private val keyIcon = ContextCompat.getDrawable(context, R.drawable.ic_keyboard)!!.mutate()
-    private val doneLabel = context.getString(R.string.text_done)
     private val letter = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Fonts.bold(context)
         textAlign = Paint.Align.CENTER
     }
-    private val doneText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Fonts.bold(context)
-        textSize = dp(17f)
-        textAlign = Paint.Align.CENTER
-        color = Color.WHITE
-    }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.5f) }
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f); color = 0x33000000 }
-    private val doneRect = RectF()
     private val step = dp(STEP_DP)
     private val dotStep = dp(DOT_STEP_DP)
 
-    // Centres, from the left: the keyboard key, the sizes, then the colours.
-    private val keyX = dp(14f) + step / 2
+    // Centres, from the left: the keyboard key, the sizes, then the colours; the whole row centred.
+    private var ox = 0f
+    private val keyX get() = ox + dp(14f) + step / 2
     private fun sizeX(i: Int) = keyX + step * (i + 1) + dp(6f)
     private fun dotX(i: Int) = sizeX(TextEditor.SIZES_DP.lastIndex) + step / 2 + dp(14f) + dotStep * (i + 0.5f)
 
     private var downOn = NOTHING
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        ox = 0f
+        val content = dotX(Presets.COLORS.lastIndex) + dotStep / 2 + dp(14f)
+        ox = max(0f, (w - content) / 2f)
+    }
 
     init {
         contentDescription = context.getString(R.string.tool_text)
@@ -706,15 +703,9 @@ private class TextBar(context: Context, private var color: Int, private var size
                 canvas.drawCircle(x, cy, dp(DOT_DP + 4.5f), ring)
             }
         }
-        val w = doneText.measureText(doneLabel) + dp(36f)
-        doneRect.set(width - dp(12f) - w, cy - dp(21f), width - dp(12f), cy + dp(21f))
-        fill.color = OrbStyle.TEAL
-        canvas.drawRoundRect(doneRect, dp(21f), dp(21f), fill)
-        canvas.drawText(doneLabel, doneRect.centerX(), cy - (doneText.descent() + doneText.ascent()) / 2f, doneText)
     }
 
     private fun itemAt(x: Float): Int {
-        if (doneRect.contains(x, height / 2f)) return DONE
         if (abs(x - keyX) <= step / 2) return KEY
         for (i in TextEditor.SIZES_DP.indices) if (abs(x - sizeX(i)) <= step / 2) return SIZE + i
         for (i in Presets.COLORS.indices) if (abs(x - dotX(i)) <= dotStep / 2) return COLOUR + i
@@ -732,7 +723,6 @@ private class TextBar(context: Context, private var color: Int, private var size
 
     private fun pick(item: Int) {
         when {
-            item == DONE -> onDone?.invoke()
             item == KEY -> onKeyboard?.invoke()
             item >= COLOUR -> {
                 color = Presets.COLORS[item - COLOUR]
@@ -754,7 +744,6 @@ private class TextBar(context: Context, private var color: Int, private var size
         private val LETTERS_DP = floatArrayOf(15f, 20f, 26f)
         private const val NOTHING = -1
         private const val KEY = 0
-        private const val DONE = 1
         private const val SIZE = 10
         private const val COLOUR = 20
     }
