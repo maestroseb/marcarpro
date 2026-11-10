@@ -311,6 +311,37 @@ class MultiTouchTest {
     }
 
     @Test
+    fun aThrownPictureHitsAStraightLineBetweenItsEnds() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        val blue = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF3B5BDB.toInt()) }
+        // A ruler-straight line: two points only, both far above and below where the picture passes.
+        val line = Stroke(InkTool.PEN, 0xFF1F2329.toInt(), 6f, 1f).apply {
+            add(1000f, 200f, 1f)
+            add(1000f, 750f, 1f)
+            uniform = true
+            finish()
+            group = 2
+        }
+        InkStore.write(
+            whiteboard,
+            InkStore.encode(listOf(Stroke.picture(blue, null, 300f, 400f, 500f, 550f).apply { group = 1 }, line)),
+        )
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(3000)
+        gesture(listOf(List(9) { k -> PointF(400f + k * 50f, 475f) }))
+        Thread.sleep(3500)
+        shot("line_hit")
+        stopLayer()
+        val saved = InkStore.read(whiteboard)
+        val picture = saved.first { it.tool == InkTool.IMAGE }
+        val hitLine = saved.first { it.tool == InkTool.PEN }
+        assertTrue("the line was knocked on, now at ${hitLine.bounds.left}", hitLine.bounds.left > 1010f)
+        assertTrue("the picture didn't go through it", picture.bounds.right <= hitLine.bounds.left + 2f)
+    }
+
+    @Test
     fun aKnockOffCentreTurnsIt() {
         prefs.fingerMode = FingerMode.APPS
         prefs.stylusSeen = true

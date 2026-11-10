@@ -421,7 +421,10 @@ class OverlayService : Service() {
             // A slow press on the badge or the dot is still a tap on it, never an undo.
             longPressEnabled = { !orb.downOnBadge && !orb.downOnDot },
             onDragStart = {
+                // Nothing stays open where the orb was: the ring, the colours, the palette card.
                 closeRing()
+                closeColors()
+                hidePalette()
                 orbDragging = true
                 updateQuick()
                 target.show(true)

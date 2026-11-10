@@ -302,6 +302,8 @@ class AnnotationView(context: Context) : View(context) {
         val ignore: HashSet<Int>,
     ) {
         var time = SystemClock.uptimeMillis()
+        /** This frame's time step, in ms. */
+        var dt = 0f
         /** Heavier the bigger it is (its box's area, with a floor so a thin line still weighs something). */
         val mass = kotlin.math.max(bounds.width() * bounds.height(), 1f)
         /** How hard it is to turn: a box's moment of inertia about its centre. */
@@ -1820,7 +1822,7 @@ class AnnotationView(context: Context) : View(context) {
     /** Sets [items] flying from where [m] puts them; [at] is where that is on the board. */
     private fun launch(items: List<Stroke>, m: Matrix, bounds: RectF, area: RectF, vx: Float, vy: Float, chain: Chain, at: RectF) {
         val ignore = HashSet<Int>()
-        for (s in strokes) if (s !in offLayer && RectF.intersects(at, s.bounds)) ignore += s.group
+        for (s in strokes) if (s !in offLayer && touches(at, s)) ignore += s.group
         flights += Flight(items, m, bounds, area, vx, vy, chain, ignore)
         chain.flying++
         airborne.addAll(items)
@@ -1830,11 +1832,35 @@ class AnnotationView(context: Context) : View(context) {
     private fun stepFlights() {
         if (!flying) return
         val now = SystemClock.uptimeMillis()
-        val it = flights.iterator()
-        while (it.hasNext()) {
-            val f = it.next()
-            val dt = min(32L, now - f.time).toFloat()
+        // A fast throw moves further in a frame than a thin line is wide: in a few smaller steps,
+        // each checked for knocks, it can't jump over anything.
+        var fastest = 0f
+        for (f in flights) {
+            f.dt = min(32L, now - f.time).toFloat()
             f.time = now
+            fastest = kotlin.math.max(fastest, hypot(f.vx, f.vy) * f.dt)
+        }
+        val steps = kotlin.math.ceil(fastest / dp(FLIGHT_SUBSTEP_DP)).toInt().coerceIn(1, MAX_SUBSTEPS)
+        repeat(steps) {
+            moveFlights(steps)
+            collide()
+        }
+        val left = flights.iterator()
+        while (left.hasNext()) {
+            val f = left.next()
+            if (hypot(f.vx, f.vy) * zoom < dp(FLIGHT_STOP_DP_PER_MS)) {
+                left.remove()
+                land(f)
+            }
+        }
+        invalidate()
+        if (flying) postOnAnimation(flightStep)
+    }
+
+    /** Moves every flight by a [parts]-th of its frame, bouncing off the area's edges. */
+    private fun moveFlights(parts: Int) {
+        for (f in flights) {
+            val dt = f.dt / parts
             val m = f.matrix
             m.postTranslate(f.vx * dt, f.vy * dt)
             if (f.spin != 0f) {
@@ -1852,17 +1878,6 @@ class AnnotationView(context: Context) : View(context) {
             f.vx *= k
             f.vy *= k
         }
-        collide()
-        val left = flights.iterator()
-        while (left.hasNext()) {
-            val f = left.next()
-            if (hypot(f.vx, f.vy) * zoom < dp(FLIGHT_STOP_DP_PER_MS)) {
-                left.remove()
-                land(f)
-            }
-        }
-        invalidate()
-        if (flying) postOnAnimation(flightStep)
     }
 
     /**
@@ -1914,7 +1929,33 @@ class AnnotationView(context: Context) : View(context) {
         if (!RectF.intersects(r, s.bounds)) return false
         if (s.tool == InkTool.IMAGE || s.tool == InkTool.TEXT) return true
         val pad = s.reach
-        return s.points.any { p -> p.x > r.left - pad && p.x < r.right + pad && p.y > r.top - pad && p.y < r.bottom + pad }
+        val l = r.left - pad
+        val t = r.top - pad
+        val rr = r.right + pad
+        val b = r.bottom + pad
+        val pts = s.points
+        if (pts.size == 1) return pts[0].x in l..rr && pts[0].y in t..b
+        // Along the line between points, not just at them: a shape's corners or a fast stroke's
+        // points can lie far apart, and an object crossing between them must still hit.
+        for (i in 1 until pts.size) if (segmentHits(pts[i - 1], pts[i], l, t, rr, b)) return true
+        return false
+    }
+
+    /** Whether the segment [p]–[q] reaches into the box (Liang–Barsky clipping). */
+    private fun segmentHits(p: InkPoint, q: InkPoint, l: Float, t: Float, r: Float, b: Float): Boolean {
+        if (kotlin.math.max(p.x, q.x) < l || kotlin.math.min(p.x, q.x) > r ||
+            kotlin.math.max(p.y, q.y) < t || kotlin.math.min(p.y, q.y) > b) return false
+        val dx = q.x - p.x
+        val dy = q.y - p.y
+        var lo = 0f
+        var hi = 1f
+        fun clip(den: Float, num: Float): Boolean {
+            if (den == 0f) return num >= 0f
+            val k = num / den
+            if (den < 0f) { if (k > hi) return false; if (k > lo) lo = k } else { if (k < lo) return false; if (k < hi) hi = k }
+            return true
+        }
+        return clip(-dx, p.x - l) && clip(dx, r - p.x) && clip(-dy, p.y - t) && clip(dy, b - p.y) && lo <= hi
     }
 
     /** A collision between [a] and [b], whose boxes overlap: pushes them apart and trades speed. */
@@ -2317,6 +2358,8 @@ class AnnotationView(context: Context) : View(context) {
         const val MAX_SPIN = 0.12f
         /** At most this many objects in the air at once: past it, what lies on the board stays put. */
         const val MAX_FLIGHTS = 16
+        const val FLIGHT_SUBSTEP_DP = 12f
+        const val MAX_SUBSTEPS = 6
         /** A drawing bigger than this (in strokes) is too heavy to knock away. */
         const val MAX_KNOCKED_STROKES = 400
         const val EDIT_ROW = 0
