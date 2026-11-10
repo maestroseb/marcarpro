@@ -180,4 +180,10 @@
     <string name="board_restored">“%s” is back</string>
     <string name="quick_to_bin">The quick board from the other day is in the bin, in case you need it</string>
     <string name="page_of">Page %1$d of %2$d</string>
+    <!-- The version mark in the whiteboard's corner -->
+    <string name="version_mark" translatable="false">Marcar Pro %s</string>
+    <string name="version_checking">Checking…</string>
+    <string name="version_current">Up to date</string>
+    <string name="version_offline">No connection</string>
+    <string name="version_install">Install %s</string>
 </resources>

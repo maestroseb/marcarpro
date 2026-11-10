@@ -75,6 +75,7 @@ class OverlayService : Service() {
         private const val UPDATE_FIRST_CHECK_MS = 60_000L
         private const val FRESH_START_MS = 10L * 60 * 1000
         private const val UPDATE_TICK_MS = 10L * 60 * 1000
+        private const val VERSION_ANSWER_MS = 4000L
         private const val UPDATE_IDLE_MS = 30L * 60 * 1000
 
         // Before the screenshot: the floating controls (and the whiteboard's ink) must be gone.
@@ -232,6 +233,7 @@ class OverlayService : Service() {
             updates.execute {
                 updater.checkAndDownload(force)
                 val version = updater.readyVersion ?: return@execute
+                handler.post { showVersionReady(version) }
                 // Just switched on and nobody has used it yet: the update goes in now, before class
                 // (a few seconds; the ink is saved and comes back). Otherwise the teacher is asked.
                 if (lastActivity == startedAt && SystemClock.uptimeMillis() - startedAt < FRESH_START_MS) {
@@ -300,6 +302,8 @@ class OverlayService : Service() {
             onMessage = { toast(it) }
             onPasteRequest = { x, y, copiedAt -> pasteFromClipboard(x, y, copiedAt) }
             onTextPlace = ::newText
+            onVersionTap = ::onVersionTap
+            showVersion(getString(R.string.version_mark, BuildConfig.VERSION_NAME), AnnotationView.VersionMark.IDLE)
             onTextEdit = ::editText
             onTypingTouch = { textEditor?.finish(commit = true) }
         }
@@ -605,6 +609,54 @@ class OverlayService : Service() {
             if (updater.installIfReady() == Updater.Install.NEEDS_PERMISSION) handler.post(::askToAllowUpdates)
         }
     }
+
+    // region Version mark (the whiteboard's bottom right corner)
+
+    /** A tap on the version mark: looks for a newer version now, or installs the one waiting. */
+    private fun onVersionTap() {
+        val ink = canvas ?: return
+        when (ink.versionState) {
+            AnnotationView.VersionMark.CHECKING -> return
+            AnnotationView.VersionMark.NEW -> {
+                installUpdate()
+                return
+            }
+            else -> Unit
+        }
+        lastActivity = SystemClock.uptimeMillis()
+        handler.removeCallbacks(versionBack)
+        ink.showVersion(getString(R.string.version_checking), AnnotationView.VersionMark.CHECKING)
+        updates.execute {
+            val found = updater.checkAndDownload(force = true)
+            val ready = updater.readyVersion
+            handler.post {
+                when {
+                    ready != null -> showVersionReady(ready)
+                    found == Updater.Check.FAILED -> showVersionFor(getString(R.string.version_offline), AnnotationView.VersionMark.OFFLINE)
+                    else -> showVersionFor(getString(R.string.version_current), AnnotationView.VersionMark.CURRENT)
+                }
+            }
+        }
+    }
+
+    /** A newer version is downloaded: the mark becomes an "Install" pill (the card may also offer it). */
+    private fun showVersionReady(version: String) {
+        handler.removeCallbacks(versionBack)
+        canvas?.showVersion(getString(R.string.version_install, version), AnnotationView.VersionMark.NEW)
+    }
+
+    /** Shows an answer for a few seconds, then the version again. */
+    private fun showVersionFor(text: String, state: AnnotationView.VersionMark) {
+        canvas?.showVersion(text, state)
+        handler.removeCallbacks(versionBack)
+        handler.postDelayed(versionBack, VERSION_ANSWER_MS)
+    }
+
+    private val versionBack = Runnable {
+        canvas?.showVersion(getString(R.string.version_mark, BuildConfig.VERSION_NAME), AnnotationView.VersionMark.IDLE)
+    }
+
+    // endregion
 
     /** After an update, says so once. */
     private fun announceUpdate() {

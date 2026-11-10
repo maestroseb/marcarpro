@@ -38,32 +38,38 @@ internal class Updater(context: Context) {
     private val prefs = this.context.getSharedPreferences("marcar_updates", Context.MODE_PRIVATE)
     private val apk = File(this.context.cacheDir, "update.apk")
 
+    /** What a look at GitHub found. */
+    enum class Check { SKIPPED, CURRENT, READY, FAILED }
+
     /** Checks GitHub (at most every few hours, or when [force]d) and downloads a newer, valid release. */
-    fun checkAndDownload(force: Boolean = false) {
-        if (BuildConfig.UPDATE_REPO.isEmpty()) return
+    fun checkAndDownload(force: Boolean = false): Check {
+        if (BuildConfig.UPDATE_REPO.isEmpty()) return Check.SKIPPED
         val now = System.currentTimeMillis()
-        if (!force && now - prefs.getLong(KEY_CHECKED, 0) < CHECK_EVERY_MS) return
+        if (!force && now - prefs.getLong(KEY_CHECKED, 0) < CHECK_EVERY_MS) return Check.SKIPPED
         prefs.edit { putLong(KEY_CHECKED, now) }
-        runCatching {
+        return runCatching {
             val release = JSONObject(get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest"))
             val version = release.getString("tag_name").removePrefix("v").trim()
             if (!isNewer(version, BuildConfig.VERSION_NAME)) {
                 apk.delete()
-                return
+                return Check.CURRENT
             }
-            if (prefs.getString(KEY_READY, null) == version && apk.exists()) return
+            if (prefs.getString(KEY_READY, null) == version && apk.exists()) return Check.READY
             val assets = release.getJSONArray("assets")
             val url = (0 until assets.length()).map { assets.getJSONObject(it) }
-                .firstOrNull { it.getString("name").endsWith(".apk") }?.getString("browser_download_url") ?: return
+                .firstOrNull { it.getString("name").endsWith(".apk") }?.getString("browser_download_url") ?: return Check.CURRENT
             download(url, apk)
             if (isOurs(apk)) {
                 prefs.edit { putString(KEY_READY, version) }
                 Log.i(TAG, "update $version ready")
+                Check.READY
             } else {
+                // Not ours to install: as far as the teacher is concerned, there is nothing new.
                 Log.w(TAG, "release $version is not signed like this app: ignored")
                 apk.delete()
+                Check.CURRENT
             }
-        }.onFailure { Log.i(TAG, "update check failed: ${it.message}") }
+        }.onFailure { Log.i(TAG, "update check failed: ${it.message}") }.getOrDefault(Check.FAILED)
     }
 
     /** True when a downloaded update is waiting to be installed. */

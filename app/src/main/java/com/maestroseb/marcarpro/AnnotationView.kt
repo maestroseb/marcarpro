@@ -24,6 +24,7 @@ import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.withClip
+import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withMatrix
 import androidx.core.graphics.withTranslation
 import androidx.input.motionprediction.MotionEventPredictor
@@ -735,6 +736,8 @@ class AnnotationView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         if (board.paper) drawPaper(canvas)
+        // Part of the paper: ink written over it covers it.
+        drawVersionMark(canvas)
         // While the whiteboard moves, its ink is drawn directly (the layer is re-rasterised after).
         if (!panning) repaintDirty()
         if (!inkHidden && !panning) drawLayer(canvas)
@@ -767,6 +770,91 @@ class AnnotationView(context: Context) : View(context) {
         // keep their size (and their handles stay as easy to grab).
         if (selection.isNotEmpty() && !inkHidden) drawSelection(canvas)
         if (selection.isNotEmpty() && menuShown && gesture == Gesture.NONE && !flying) drawMenu(canvas) else menuRect.setEmpty()
+        if (warmFrames > 0) warmUp(canvas)
+    }
+
+    /** What the version mark in the whiteboard's corner says, and how. */
+    enum class VersionMark { IDLE, CHECKING, CURRENT, NEW, OFFLINE }
+
+    var versionText = ""
+        private set
+    var versionState = VersionMark.IDLE
+        private set
+    var onVersionTap: (() -> Unit)? = null
+
+    fun showVersion(text: String, state: VersionMark) {
+        versionText = text
+        versionState = state
+        if (board.paper) invalidate()
+    }
+
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Fonts.regular(context)
+        textSize = dp(MARK_TEXT_DP)
+        textAlign = Paint.Align.CENTER
+    }
+    private val markFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val markRect = RectF()
+
+    private fun onMark(x: Float, y: Float): Boolean {
+        if (markRect.isEmpty) return false
+        val slack = dp(MARK_SLACK_DP)
+        return x >= markRect.left - slack && x <= markRect.right + slack && y >= markRect.top - slack && y <= markRect.bottom + slack
+    }
+
+    /**
+     * The installed version, small and faint in the whiteboard's bottom right corner, like a
+     * colophon; a tap looks for a newer one, and one waiting turns it into an "Install" pill.
+     * Drawn here, in the ink's own window: another window would be one more layer to compose.
+     */
+    private fun drawVersionMark(canvas: Canvas) {
+        if (!board.paper || versionText.isEmpty()) {
+            markRect.setEmpty()
+            return
+        }
+        val dark = paperColor.dark
+        val pill = versionState == VersionMark.NEW
+        markPaint.color = when (versionState) {
+            VersionMark.NEW -> Color.WHITE
+            VersionMark.CURRENT -> if (dark) MARK_CURRENT_DARK else MARK_CURRENT
+            VersionMark.OFFLINE -> if (dark) MARK_OFFLINE_DARK else MARK_OFFLINE
+            else -> if (dark) MARK_FAINT_DARK else MARK_FAINT
+        }
+        val pad = dp(if (pill) 10f else 6f)
+        val h = dp(MARK_HEIGHT_DP)
+        val right = width - dp(MARK_MARGIN_DP)
+        val bottom = height - dp(MARK_MARGIN_DP) / 2
+        markRect.set(right - markPaint.measureText(versionText) - 2 * pad, bottom - h, right, bottom)
+        // The paper's own colour behind the words, so ruled lines don't run through them.
+        markFill.color = if (pill) OrbStyle.TEAL else paperColor.background
+        canvas.drawRoundRect(markRect, h / 2, h / 2, markFill)
+        canvas.drawText(versionText, markRect.centerX(), markRect.centerY() - (markPaint.descent() + markPaint.ascent()) / 2, markPaint)
+    }
+
+    /**
+     * On the panel, the first stroke after the app starts waited 150–285 ms while the GPU built its
+     * programs for ink (paths, translucent ink, glow, pictures). They are built now instead, before
+     * anyone writes: one of each drawn in a corner at 1/100 opacity, which no eye can tell apart.
+     */
+    private var warmFrames = WARM_FRAMES
+    private val warmBitmap by lazy { createBitmap(8, 8).apply { eraseColor(Color.BLACK) } }
+    private val warmMatrix = Matrix()
+
+    private fun warmUp(canvas: Canvas) {
+        warmFrames--
+        val d = dp(4f)
+        for (tool in listOf(InkTool.PEN, InkTool.HIGHLIGHTER)) {
+            val s = Stroke(tool, Color.BLACK, d, 1f)
+            for (k in 0..6) s.add(d + k * d, d + (k % 2) * d, 0.5f + k * 0.05f)
+            s.finish()
+            drawStroke(canvas, s, WARM_OPACITY)
+            if (tool == InkTool.PEN) drawGlowing(canvas, s, WARM_OPACITY)
+        }
+        warmMatrix.setRotate(7f)
+        warmMatrix.postTranslate(d, d)
+        picturePaint.alpha = (255 * WARM_OPACITY).toInt()
+        canvas.drawBitmap(warmBitmap, warmMatrix, picturePaint)
+        if (warmFrames > 0) postInvalidateOnAnimation()
     }
 
     /**
@@ -1087,6 +1175,37 @@ class AnnotationView(context: Context) : View(context) {
     @android.annotation.SuppressLint("ClickableViewAccessibility") // performClick() is called from handle()
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!annotating) return false
+        // A touch that starts on the version mark is a tap on it, unless it moves off as a stroke.
+        val held = markDown
+        if (held != null) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_MOVE -> if (hypot(e.x - held.x, e.y - held.y) <= touchSlop) return true
+                MotionEvent.ACTION_UP -> {
+                    markDown = null
+                    held.recycle()
+                    onVersionTap?.invoke()
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    markDown = null
+                    held.recycle()
+                    return true
+                }
+            }
+            // It became a stroke (or a second finger came): the ink gets the touch from its start.
+            markDown = null
+            onInk(held)
+            held.recycle()
+        } else if (e.actionMasked == MotionEvent.ACTION_DOWN && board.paper && onMark(e.x, e.y)) {
+            markDown = MotionEvent.obtain(e)
+            return true
+        }
+        return onInk(e)
+    }
+
+    private var markDown: MotionEvent? = null
+
+    private fun onInk(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_DOWN) {
             swallowing = typing
             if (typing) onTypingTouch?.invoke()
@@ -2365,6 +2484,18 @@ class AnnotationView(context: Context) : View(context) {
         const val COLOUR_ROW = 3
         const val DELETE_ROW = 4
         const val HIGHLIGHTER_ALPHA = 96
+        const val WARM_FRAMES = 2
+        const val WARM_OPACITY = 0.011f // the least that still draws: alpha 1–2 of 255
+        const val MARK_TEXT_DP = 12f
+        const val MARK_HEIGHT_DP = 24f
+        const val MARK_MARGIN_DP = 12f
+        const val MARK_SLACK_DP = 8f
+        const val MARK_FAINT = 0xFF8A9099.toInt()
+        const val MARK_FAINT_DARK = 0x80FFFFFF.toInt()
+        const val MARK_CURRENT = 0xFF2F6E6B.toInt()
+        const val MARK_CURRENT_DARK = 0xFF9FD8D4.toInt()
+        const val MARK_OFFLINE = 0xFFA32D2D.toInt()
+        const val MARK_OFFLINE_DARK = 0xFFF5B3AC.toInt()
         const val DIRTY_MARGIN = 2f
         const val PREDICT_MAX_DP = 24f
 
