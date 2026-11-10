@@ -151,18 +151,22 @@
     <string name="board_opened_yesterday">Abierta ayer</string>
     <plurals name="board_opened_days">
         <item quantity="one">Hace %d día</item>
+        <item quantity="many">Hace %d días</item>
         <item quantity="other">Hace %d días</item>
     </plurals>
     <plurals name="board_expires">
         <item quantity="one">Va a la papelera mañana</item>
+        <item quantity="many">Va a la papelera en %d días</item>
         <item quantity="other">Va a la papelera en %d días</item>
     </plurals>
     <plurals name="board_deleted_in">
         <item quantity="one">Se borra mañana</item>
+        <item quantity="many">Se borra en %d días</item>
         <item quantity="other">Se borra en %d días</item>
     </plurals>
     <plurals name="board_pages">
         <item quantity="one">%d página</item>
+        <item quantity="many">%d páginas</item>
         <item quantity="other">%d páginas</item>
     </plurals>
     <string name="boards_save_new">Guardar como pizarra nueva</string>
@@ -177,10 +181,6 @@
     <string name="board_saved">Guardada como «%s»</string>
     <string name="board_thrown">«%s» está en la papelera</string>
     <string name="board_restored">«%s» recuperada</string>
-    <string name="board_opened">%s</string>
     <string name="quick_to_bin">La pizarra rápida del otro día está en la papelera, por si la necesitas</string>
-    <string name="page_prev">Página anterior</string>
-    <string name="page_next">Página siguiente</string>
-    <string name="page_add">Página nueva</string>
     <string name="page_of">Página %1$d de %2$d</string>
 </resources>

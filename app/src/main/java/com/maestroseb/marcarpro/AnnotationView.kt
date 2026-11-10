@@ -473,7 +473,7 @@ class AnnotationView(context: Context) : View(context) {
     val isEmpty get() = strokes.isEmpty()
 
     /** The committed ink, encoded for [InkStore]. */
-    fun encodeInk(): ByteArray = InkStore.encode(strokes)
+    fun encodeInk(): List<ByteArray> = InkStore.encodeParts(strokes)
 
     /** A board holding [saved] ink (e.g. read back from disk), ready for [showBoard]. */
     internal fun newBoard(saved: List<Stroke> = emptyList(), paper: Boolean = false) = Board({ notifyState() }, paper).also { b ->
@@ -548,9 +548,6 @@ class AnnotationView(context: Context) : View(context) {
         insertStrokes(listOf(s))
         return s
     }
-
-    /** Whether a finger on empty space may reach the app below (not on the PC, where it can't). */
-    var passThrough = true
 
     /** True while nothing is being written, erased, moved or flying: safe to swap boards. */
     val isIdle get() = gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && !flying

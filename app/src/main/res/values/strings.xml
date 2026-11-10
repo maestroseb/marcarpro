@@ -178,10 +178,6 @@
     <string name="board_saved">Saved as “%s”</string>
     <string name="board_thrown">“%s” is in the bin</string>
     <string name="board_restored">“%s” is back</string>
-    <string name="board_opened">%s</string>
     <string name="quick_to_bin">The quick board from the other day is in the bin, in case you need it</string>
-    <string name="page_prev">Previous page</string>
-    <string name="page_next">Next page</string>
-    <string name="page_add">New page</string>
     <string name="page_of">Page %1$d of %2$d</string>
 </resources>

@@ -1812,7 +1812,6 @@ class OverlayService : Service() {
         val ink = canvas ?: return
         ink.annotating = !paused
         ink.fingersWrite = prefs.fingerMode == FingerMode.WRITE
-        ink.passThrough = !external
         val touchable = !paused && !relaying && !panelCropping
         val flags = if (touchable) CANVAS_FLAGS else CANVAS_FLAGS or WLP.FLAG_NOT_TOUCHABLE
         // Android 12+ only lets touches pass through another app's overlay if it is ≤ 80% opaque.

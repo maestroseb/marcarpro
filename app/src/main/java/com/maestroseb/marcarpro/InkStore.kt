@@ -22,43 +22,76 @@ internal object InkStore {
     private const val STROKE_HEADER = 23 // tool, colour, size, speed unit, group, 2 flags, point count
 
     /** Serialises on the calling thread (one pass into one buffer); the caller may write the bytes elsewhere. */
+    /** The whole board in one array (tests, and anything that needs it at once). */
     fun encode(strokes: List<Stroke>): ByteArray {
-        var size = 8
-        for (s in strokes) {
-            size += STROKE_HEADER + 12 * s.points.size
-            if (s.tool == InkTool.IMAGE) size += 4 + pictureData(s).size
-            if (s.tool == InkTool.TEXT) size += 4 + textData(s).size
+        val parts = encodeParts(strokes)
+        val all = ByteArray(parts.sumOf { it.size })
+        var at = 0
+        for (p in parts) {
+            p.copyInto(all, at)
+            at += p.size
         }
-        // Big-endian, the same layout DataOutputStream wrote (old files still load).
-        val out = ByteBuffer.allocate(size)
-        out.putInt(MAGIC)
-        out.putInt(strokes.size)
-        for (s in strokes) {
-            out.put(s.tool.ordinal.toByte())
-            out.putInt(s.color)
-            out.putFloat(s.size)
-            out.putFloat(s.speedUnit)
-            out.putInt(s.group)
-            out.put(if (s.uniform) 1 else 0)
-            out.put(if (s.hasRealPressure) 1 else 0)
-            out.putInt(s.points.size)
-            for (p in s.points) {
-                out.putFloat(p.x)
-                out.putFloat(p.y)
-                out.putFloat(p.pressure)
+        return all
+    }
+
+    /**
+     * The board as pieces to write one after the other: the ink, encoded now, and each picture's
+     * PNG as it already is, never copied. Saving after every change, a board with a few pasted
+     * cut-outs would otherwise copy megabytes on the main thread each time.
+     */
+    fun encodeParts(strokes: List<Stroke>): List<ByteArray> {
+        val parts = ArrayList<ByteArray>()
+        var i = 0
+        var first = true
+        while (true) {
+            // One run of strokes up to and including the next picture (its PNG is a part of its own).
+            var size = if (first) 8 else 0
+            var j = i
+            var picture: ByteArray? = null
+            while (j < strokes.size) {
+                val s = strokes[j++]
+                size += STROKE_HEADER + 12 * s.points.size
+                if (s.tool == InkTool.TEXT) size += 4 + textData(s).size
+                if (s.tool == InkTool.IMAGE) {
+                    picture = pictureData(s)
+                    size += 4
+                    break
+                }
             }
-            if (s.tool == InkTool.IMAGE) {
-                val png = pictureData(s)
-                out.putInt(png.size)
-                out.put(png)
+            // Big-endian, the same layout DataOutputStream wrote (old files still load).
+            val out = ByteBuffer.allocate(size)
+            if (first) {
+                out.putInt(MAGIC)
+                out.putInt(strokes.size)
+                first = false
             }
-            if (s.tool == InkTool.TEXT) {
-                val words = textData(s)
-                out.putInt(words.size)
-                out.put(words)
+            for (k in i until j) {
+                val s = strokes[k]
+                out.put(s.tool.ordinal.toByte())
+                out.putInt(s.color)
+                out.putFloat(s.size)
+                out.putFloat(s.speedUnit)
+                out.putInt(s.group)
+                out.put(if (s.uniform) 1 else 0)
+                out.put(if (s.hasRealPressure) 1 else 0)
+                out.putInt(s.points.size)
+                for (p in s.points) {
+                    out.putFloat(p.x)
+                    out.putFloat(p.y)
+                    out.putFloat(p.pressure)
+                }
+                if (s.tool == InkTool.IMAGE) out.putInt(picture!!.size)
+                if (s.tool == InkTool.TEXT) {
+                    val words = textData(s)
+                    out.putInt(words.size)
+                    out.put(words)
+                }
             }
+            parts += out.array()
+            if (picture != null) parts += picture
+            i = j
+            if (i >= strokes.size) return parts
         }
-        return out.array()
     }
 
     private fun textData(s: Stroke): ByteArray = s.text.orEmpty().toByteArray(Charsets.UTF_8)
@@ -123,12 +156,15 @@ internal object InkStore {
      * Writes atomically and synced to storage: a crash or a power cut mid-write leaves the
      * previous board intact (the panel is often switched off at the wall).
      */
-    fun write(file: File, data: ByteArray) {
+    fun write(file: File, data: ByteArray) = write(file, listOf(data))
+
+    /** Writes [parts] one after the other, all or nothing (the old file stays if it fails). */
+    fun write(file: File, parts: List<ByteArray>) {
         val atomic = AtomicFile(file)
         var out: java.io.FileOutputStream? = null
         try {
             out = atomic.startWrite()
-            out.write(data)
+            for (p in parts) out.write(p)
             atomic.finishWrite(out)
         } catch (_: IOException) {
             if (out != null) atomic.failWrite(out)
