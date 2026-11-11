@@ -21,6 +21,7 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.withClip
@@ -46,8 +47,15 @@ import kotlin.math.min
  *
  * Committed ink lives in a tiled bitmap layer ([InkLayer]) that is only repainted where it
  * changes (a full repaint only when the whole board changes: switching page, clearing, resizing).
+ * Ink being written, and just written, is "wet": it shows in a grid of small views of its own
+ * ([WetCell]), so that writing only ever repaints the squares under the pen.
  */
-class AnnotationView(context: Context) : View(context) {
+class AnnotationView(context: Context) : ViewGroup(context) {
+
+    init {
+        // A view group that draws: the board itself; its children are only the wet cells.
+        setWillNotDraw(false)
+    }
 
     /** Told whenever the ink changes (to save it). */
     fun interface Listener {
@@ -77,6 +85,7 @@ class AnnotationView(context: Context) : View(context) {
                 cancelInk()
                 cancelGesture()
                 clearSelection()
+                dry()
             }
             invalidate()
         }
@@ -249,9 +258,43 @@ class AnnotationView(context: Context) : View(context) {
         var speed = 0f
     }
 
-    /** A stroke being written, with the tool it was started with (the tool may change meanwhile). */
-    private class Live(val stroke: Stroke, val tool: Tool) {
+    /**
+     * A stroke being written by pointer [id], with the tool it was started with (the tool may change
+     * meanwhile). A plain pen line is [piecewise]: what the pen leaves behind no longer changes and
+     * is laid down once, in pieces; only its end is worked out and drawn again every frame.
+     */
+    private class Live(val id: Int, val stroke: Stroke, val tool: Tool, val piecewise: Boolean) {
+        /** New samples arrived since it was last brought up to date on screen. */
         var stale = false
+
+        /** How far the outline is laid down in pieces: up to the cut after this point (0: none of it). */
+        var laid = 0
+        var pieces = 0
+
+        /** What the pieces' widths came from: the pen's own pressure, or its speed. */
+        var pressure = false
+
+        /** The outline from the last piece to the pen. */
+        val tip = Path()
+
+        /** Drawn whole, not as [tip]: a dot so far, or ink that can't be laid down in pieces. */
+        var whole = true
+
+        /** The cells its end is drawn in, as columns [c0]..[c1] and rows [r0]..[r1]; none while [c0] < 0. */
+        var c0 = -1
+        var c1 = -1
+        var r0 = -1
+        var r1 = -1
+
+        /** A short line on to where the pen is predicted to be, from the stroke's last point. */
+        var predicted = false
+        var fromX = 0f
+        var fromY = 0f
+        var toX = 0f
+        var toY = 0f
+
+        /** Lifted and committed: its ink stays wet until it dries into the layer. */
+        var done = false
     }
 
     private val inking = LinkedHashMap<Int, Live>()
@@ -581,9 +624,18 @@ class AnnotationView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         if (w <= 0 || h <= 0) return
+        dry(keep = false) // everything is drawn again below
+        buildCells(w, h)
         layer.resize(w, h)
         redrawLayer()
     }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        for (cell in cells) cell.layout(cell.x0, cell.y0, cell.x1, cell.y1)
+    }
+
+    /** Every touch is the board's: the wet cells only draw. */
+    override fun onInterceptTouchEvent(ev: MotionEvent) = true
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
@@ -597,11 +649,17 @@ class AnnotationView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        removeCallbacks(liveStep)
+        liveQueued = false
+        removeCallbacks(dryStep)
         velocity.recycle()
         layer.release()
+        wet.clear()
+        for (cell in cells) cell.release(recycle = true)
     }
 
     private fun redrawLayer() {
+        dry(keep = false) // the wet ink is drawn here with all the rest
         dirty.setEmpty()
         layer.redraw(strokes, offLayer, camera)
         invalidate()
@@ -615,10 +673,14 @@ class AnnotationView(context: Context) : View(context) {
     }
 
     /** Draws a newly added stroke straight onto the layer (it goes on top of everything). */
-    private fun drawOnLayer(s: Stroke) = layer.add(s, camera)
+    private fun drawOnLayer(s: Stroke) {
+        dry() // what was written before it goes under it
+        layer.add(s, camera)
+    }
 
     /** Repaints only [area] of the layer, on the next frame (erasing touches a small spot). */
     private fun invalidateLayer(area: RectF) {
+        dry() // the layer is about to be repainted from the strokes: all of them must be in it
         if (area.isEmpty) return
         // A little wider than the path: the clip isn't anti-aliased, and edge pixels must clear too.
         dirty.union(area.left - DIRTY_MARGIN, area.top - DIRTY_MARGIN, area.right + DIRTY_MARGIN, area.bottom + DIRTY_MARGIN)
@@ -752,15 +814,7 @@ class AnnotationView(context: Context) : View(context) {
                 for (f in flights) canvas.withMatrix(f.matrix) { for (s in f.items) drawStroke(this, s, 1f) }
                 drawFades(canvas)
             }
-            for (live in inking.values) {
-                // The outline is rebuilt once per frame, however many touch samples arrived since.
-                if (live.stale) {
-                    live.stale = false
-                    live.stroke.rebuild()
-                }
-                if (live.tool == Tool.MAGIC) drawGlowing(canvas, live.stroke, 1f) else drawStroke(canvas, live.stroke, 1f)
-            }
-            drawPrediction(canvas)
+            // (What is being written is drawn by the wet cells, over all of this.)
             drawMagic(canvas)
             drawErasers(canvas)
             if (gesture == Gesture.LASSO && lassoArmed) drawLasso(canvas)
@@ -926,36 +980,6 @@ class AnnotationView(context: Context) : View(context) {
 
     private var gridPoints = FloatArray(0)
     private val origin = FloatArray(2)
-
-    /**
-     * A short extension of the one stroke being written, to where the pen is predicted to be. Never
-     * stored: the next frame draws the real ink. Only plain pen ink (a translucent or glowing
-     * extension would show its overlap; shapes are redrawn on lift anyway).
-     */
-    private fun drawPrediction(canvas: Canvas) {
-        if (inking.size != 1) return
-        val (id, live) = inking.entries.first()
-        if (live.tool != Tool.PEN || live.stroke.points.size < 2) return
-        val p = predictor?.predict() ?: return
-        try {
-            val i = p.findPointerIndex(id)
-            if (i < 0) return
-            val last = live.stroke.points.last()
-            var px = p.getX(i)
-            var py = p.getY(i)
-            val d = hypot(px - last.x, py - last.y)
-            val limit = dp(PREDICT_MAX_DP) / zoom
-            if (d > limit) {
-                px = last.x + (px - last.x) * limit / d
-                py = last.y + (py - last.y) * limit / d
-            }
-            predictPaint.color = shown(live.stroke.color)
-            predictPaint.strokeWidth = live.stroke.size * 0.9f
-            canvas.drawLine(last.x, last.y, px, py, predictPaint)
-        } finally {
-            p.recycle()
-        }
-    }
 
     private fun drawFades(canvas: Canvas) {
         if (fades.isEmpty()) return
@@ -1170,6 +1194,384 @@ class AnnotationView(context: Context) : View(context) {
 
     // endregion
 
+    // region Wet ink
+
+    /**
+     * A square of the board, as a view of its own, for the ink that is still wet: what is being
+     * written, and what was written a moment ago and isn't in the [layer] yet. A frame only repaints
+     * the views that changed, so writing costs the squares under the pen. With the whole board in
+     * one view, every sample of the pen repainted the whole 4K window (on the ViewBoard, most of
+     * what a frame costs the GPU) and worked out and rasterised the whole stroke again, slower the
+     * longer it got.
+     *
+     * Ink that no longer changes is rasterised once into [ink]; per frame only the strokes' ends
+     * ([tips]) are drawn as paths. The squares are the layer's tiles ([InkLayer.TILE]), so dry ink
+     * goes over to it as it is.
+     */
+    private inner class WetCell(val x0: Int, val y0: Int, val x1: Int, val y1: Int) : View(this@AnnotationView.context) {
+        /** The ink here that no longer changes (null: none), and the part of the screen it covers. */
+        var ink: Bitmap? = null
+            private set
+        val inked = Rect()
+        private var inkCanvas: Canvas? = null
+        private val part = Rect()
+
+        /** What [ink] holds, oldest first: to draw it again if some of it has to go. */
+        private val pieces = ArrayList<Piece>()
+
+        /** Strokes whose end, still changing under the pen, crosses this square. */
+        val tips = ArrayList<Live>()
+
+        init {
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val b = ink
+            if (b != null && !inked.isEmpty) {
+                part.set(inked.left - x0, inked.top - y0, inked.right - x0, inked.bottom - y0)
+                canvas.drawBitmap(b, part, part, null)
+            }
+            if (tips.isEmpty()) return
+            canvas.translate(-x0.toFloat(), -y0.toFloat())
+            canvas.concat(camera)
+            for (k in tips.indices) drawTip(canvas, tips[k])
+        }
+
+        fun add(piece: Piece) {
+            pieces.add(piece)
+            paint(piece)
+            invalidate()
+        }
+
+        private fun paint(piece: Piece) {
+            val c = inkCanvas ?: createBitmap(x1 - x0, y1 - y0).let { b ->
+                ink = b
+                Canvas(b).also { inkCanvas = it }
+            }
+            c.withTranslation(-x0.toFloat(), -y0.toFloat()) {
+                withMatrix(camera) { drawPiece(this, piece) }
+            }
+            val a = piece.area
+            val l = max(a.left, x0)
+            val t = max(a.top, y0)
+            val r = min(a.right, x1)
+            val bottom = min(a.bottom, y1)
+            if (l < r && t < bottom) inked.union(l, t, r, bottom)
+        }
+
+        /** Takes out [owner]'s pieces (with null, those of every stroke already lifted); true if it held any. */
+        fun take(owner: Live?): Boolean {
+            var kept = 0
+            for (k in pieces.indices) {
+                val p = pieces[k]
+                val goes = if (owner == null) p.owner.done else p.owner === owner
+                if (!goes) pieces[kept++] = p
+            }
+            if (kept == pieces.size) return false
+            pieces.subList(kept, pieces.size).clear()
+            if (pieces.isEmpty()) {
+                release(recycle = true)
+            } else {
+                // What stays is drawn again.
+                ink?.eraseColor(Color.TRANSPARENT)
+                inked.setEmpty()
+                for (k in pieces.indices) paint(pieces[k])
+            }
+            invalidate()
+            return true
+        }
+
+        /** Lets go of the rasterised ink (it is the layer's now, or nobody's): the square is clean again. */
+        fun release(recycle: Boolean) {
+            if (recycle) ink?.recycle()
+            ink = null
+            inkCanvas = null
+            inked.setEmpty()
+            pieces.clear()
+            invalidate()
+        }
+    }
+
+    /**
+     * A stretch of wet ink that no longer changes: [path], or all of its stroke when that is null.
+     * [area] is the part of the screen it covers.
+     */
+    private class Piece(val owner: Live, val path: Path?, val area: Rect)
+
+    private var cells = emptyArray<WetCell>()
+    private var cellCols = 0
+    private var cellRows = 0
+
+    /** Strokes lifted and committed whose ink still shows from the cells, oldest first. */
+    private val wet = ArrayList<Live>()
+    private var liveQueued = false
+    private val liveStep = Runnable { stepLive() }
+    private val dryStep = Runnable { dry() }
+    private val reach = RectF()
+
+    private fun buildCells(w: Int, h: Int) {
+        for (cell in cells) cell.release(recycle = true)
+        removeAllViewsInLayout()
+        cellCols = (w + CELL - 1) / CELL
+        cellRows = (h + CELL - 1) / CELL
+        cells = Array(cellCols * cellRows) { k ->
+            val x = k % cellCols * CELL
+            val y = k / cellCols * CELL
+            WetCell(x, y, min(x + CELL, w), min(y + CELL, h)).also { addViewInLayout(it, -1, generateDefaultLayoutParams(), true) }
+        }
+        // A stroke being written starts again on the new cells.
+        for (live in inking.values) {
+            live.laid = 0
+            live.pieces = 0
+            live.c0 = -1
+            wake(live)
+        }
+    }
+
+    /** [live] has new samples: it is brought up to date once, on the next frame, however many arrive. */
+    private fun wake(live: Live) {
+        live.stale = true
+        if (liveQueued) return
+        liveQueued = true
+        postOnAnimation(liveStep)
+    }
+
+    private fun stepLive() {
+        liveQueued = false
+        for (live in inking.values) {
+            if (!live.stale) continue
+            live.stale = false
+            lay(live)
+        }
+    }
+
+    /**
+     * Brings [live] up to date on screen: lays down, in pieces, the part of its outline that new
+     * samples can no longer change, and works out its end again.
+     */
+    private fun lay(live: Live) {
+        if (cells.isEmpty()) return
+        val s = live.stroke
+        val n = if (live.piecewise) StrokeGeometry.measure(s) else 0
+        live.whole = n == 0
+        if (n == 0) {
+            // A dot so far, or a highlighter or magic line: drawn whole.
+            s.rebuild()
+            reach.set(s.bounds)
+            if (live.tool == Tool.MAGIC) reach.inset(-(dp(GLOW_REACH_DP) + s.size), -(dp(GLOW_REACH_DP) + s.size))
+        } else {
+            if (s.hasRealPressure != live.pressure) {
+                // The pen turned out to tell its pressure: every width changes, so it is laid again.
+                live.pressure = s.hasRealPressure
+                takePieces(live)
+            }
+            val length = PIECE_REACH / zoom
+            while (true) {
+                val to = StrokeGeometry.pieceEnd(n, live.laid, length)
+                if (to == 0) break
+                val path = Path()
+                StrokeGeometry.cut(path, live.laid, to, PIECE_OVERLAP / zoom)
+                path.computeBounds(reach, true)
+                place(live, path, reach)
+                live.laid = to
+            }
+            StrokeGeometry.cut(live.tip, live.laid, overlap = PIECE_OVERLAP / zoom)
+            live.tip.computeBounds(reach, true)
+        }
+        predict(live)
+        camera.mapRect(reach)
+        spread(live)
+    }
+
+    /**
+     * A short extension of the one stroke being written, to where the pen is predicted to be. Never
+     * stored: the next frame draws the real ink. Only plain pen ink (a translucent or glowing
+     * extension would show its overlap; shapes are redrawn on lift anyway).
+     */
+    private fun predict(live: Live) {
+        live.predicted = false
+        val s = live.stroke
+        if (inking.size != 1 || live.tool != Tool.PEN || s.points.size < 2) return
+        val p = predictor?.predict() ?: return
+        try {
+            val i = p.findPointerIndex(live.id)
+            if (i < 0) return
+            val last = s.points.last()
+            var px = p.getX(i)
+            var py = p.getY(i)
+            val d = hypot(px - last.x, py - last.y)
+            val limit = dp(PREDICT_MAX_DP) / zoom
+            if (d > limit) {
+                px = last.x + (px - last.x) * limit / d
+                py = last.y + (py - last.y) * limit / d
+            }
+            live.predicted = true
+            live.fromX = last.x
+            live.fromY = last.y
+            live.toX = px
+            live.toY = py
+            reach.union(min(last.x, px) - s.size, min(last.y, py) - s.size, max(last.x, px) + s.size, max(last.y, py) + s.size)
+        } finally {
+            p.recycle()
+        }
+    }
+
+    /** Lays down a piece of [live] ([path], or the whole stroke) that covers [area] of the board. */
+    private fun place(live: Live, path: Path?, area: RectF) {
+        if (cells.isEmpty()) return
+        camera.mapRect(tmpRect, area)
+        val on = Rect()
+        tmpRect.roundOut(on)
+        on.inset(-CELL_EDGE, -CELL_EDGE)
+        val piece = Piece(live, path, on)
+        for (r in row(on.top)..row(on.bottom)) for (c in column(on.left)..column(on.right)) cells[r * cellCols + c].add(piece)
+        live.pieces++
+    }
+
+    /** Draws [live]'s end in the cells under [reach] (on screen), repainting those and the ones it left. */
+    private fun spread(live: Live) {
+        val c0 = column((reach.left - CELL_EDGE).toInt())
+        val c1 = column((reach.right + CELL_EDGE).toInt() + 1)
+        val r0 = row((reach.top - CELL_EDGE).toInt())
+        val r1 = row((reach.bottom + CELL_EDGE).toInt() + 1)
+        val was = live.c0 >= 0
+        if (was) for (r in live.r0..live.r1) for (c in live.c0..live.c1) {
+            if (c in c0..c1 && r in r0..r1) continue
+            val cell = cells[r * cellCols + c]
+            cell.tips.remove(live)
+            cell.invalidate()
+        }
+        for (r in r0..r1) for (c in c0..c1) {
+            val cell = cells[r * cellCols + c]
+            if (!was || c !in live.c0..live.c1 || r !in live.r0..live.r1) cell.tips.add(live)
+            cell.invalidate()
+        }
+        live.c0 = c0
+        live.c1 = c1
+        live.r0 = r0
+        live.r1 = r1
+    }
+
+    private fun column(x: Int) = Math.floorDiv(x, CELL).coerceIn(0, cellCols - 1)
+
+    private fun row(y: Int) = Math.floorDiv(y, CELL).coerceIn(0, cellRows - 1)
+
+    /** [live]'s end is no longer drawn. */
+    private fun leave(live: Live) {
+        if (live.c0 < 0) return
+        for (r in live.r0..live.r1) for (c in live.c0..live.c1) {
+            val cell = cells.getOrNull(r * cellCols + c) ?: continue
+            cell.tips.remove(live)
+            cell.invalidate()
+        }
+        live.c0 = -1
+    }
+
+    private fun takePieces(live: Live) {
+        if (live.pieces > 0) for (cell in cells) cell.take(live)
+        live.pieces = 0
+        live.laid = 0
+    }
+
+    /** Takes [live] off the screen altogether (cancelled, faded away or turned into a shape). */
+    private fun unlay(live: Live) {
+        leave(live)
+        takePieces(live)
+    }
+
+    /**
+     * [live] has just been lifted and committed: its ink stays where it is, wet, with its end as the
+     * lift leaves it. Nothing else is repainted: the next stroke starts on a board that is free.
+     */
+    private fun settle(live: Live) {
+        val s = live.stroke
+        if (cells.isEmpty()) {
+            // (No board to show it on yet: straight into the layer.)
+            drawOnLayer(s)
+            return
+        }
+        live.done = true
+        live.predicted = false
+        leave(live)
+        if (s.hasRealPressure != live.pressure) {
+            // The last sample showed that the pen tells its pressure: every width changes, so the
+            // pieces go and the outline is laid whole.
+            live.pressure = s.hasRealPressure
+            takePieces(live)
+        }
+        val n = if (live.piecewise) StrokeGeometry.measure(s) else 0
+        if (n == 0) {
+            place(live, null, s.bounds)
+        } else {
+            val path = Path()
+            StrokeGeometry.cut(path, live.laid, overlap = PIECE_OVERLAP / zoom)
+            path.computeBounds(reach, true)
+            place(live, path, reach)
+        }
+        wet.add(live)
+    }
+
+    /** Lets the wet ink dry once the writing has stopped for a moment. */
+    private fun dryLater() {
+        removeCallbacks(dryStep)
+        if (wet.isNotEmpty() && inking.isEmpty()) postDelayed(dryStep, DRY_MS)
+    }
+
+    /**
+     * The ink written last goes into the [layer] with the rest ([keep] false: only off the cells,
+     * the layer is being drawn again anyway). It costs a frame that repaints the whole board, so it
+     * waits for a pause in the writing, or for anything else that needs the ink in the layer
+     * (rubbing out, picking up, moving the paper…).
+     */
+    private fun dry(keep: Boolean = true) {
+        removeCallbacks(dryStep)
+        if (wet.isEmpty()) return
+        if (inking.isEmpty()) {
+            // Nobody is writing: what the cells hold is all committed, and goes over as it is.
+            for (cell in cells) {
+                val ink = cell.ink ?: continue
+                cell.release(recycle = !(keep && layer.put(ink, cell.x0, cell.y0, cell.inked)))
+            }
+        } else {
+            // Someone is: their ink stays in the cells, and the rest is drawn into the layer.
+            if (keep) for (live in wet) layer.add(live.stroke, camera)
+            for (cell in cells) cell.take(null)
+        }
+        wet.clear()
+        invalidate()
+    }
+
+    private fun drawPiece(canvas: Canvas, piece: Piece) {
+        val s = piece.owner.stroke
+        val path = piece.path
+        if (path == null) {
+            drawStroke(canvas, s, 1f)
+        } else {
+            inkPaint.color = shown(s.color)
+            canvas.drawPath(path, inkPaint)
+        }
+    }
+
+    private fun drawTip(canvas: Canvas, live: Live) {
+        val s = live.stroke
+        when {
+            live.tool == Tool.MAGIC -> drawGlowing(canvas, s, 1f)
+            live.whole -> drawStroke(canvas, s, 1f)
+            else -> {
+                inkPaint.color = shown(s.color)
+                canvas.drawPath(live.tip, inkPaint)
+            }
+        }
+        if (live.predicted) {
+            predictPaint.color = shown(s.color)
+            predictPaint.strokeWidth = s.size * 0.9f
+            canvas.drawLine(live.fromX, live.fromY, live.toX, live.toY, predictPaint)
+        }
+    }
+
+    // endregion
+
     // region Input
 
     @android.annotation.SuppressLint("ClickableViewAccessibility") // performClick() is called from handle()
@@ -1245,8 +1647,8 @@ class AnnotationView(context: Context) : View(context) {
                 when {
                     // Android 13 marks a pointer the system took back (e.g. a rejected palm): drop its ink.
                     id in inking && e.flags and MotionEvent.FLAG_CANCELED != 0 -> {
-                        inking.remove(id)
-                        invalidate()
+                        inking.remove(id)?.let { unlay(it) }
+                        dryLater()
                     }
                     id in inking -> endInk(e, e.actionIndex, id)
                     id in erasing -> endErase(id)
@@ -1503,6 +1905,7 @@ class AnnotationView(context: Context) : View(context) {
     // region Whiteboard camera
 
     private fun startPan(i: Int) {
+        dry() // the wet ink is rasterised for where the paper is now
         removeCallbacks(armHold)
         gesture = Gesture.PAN
         panning = true
@@ -1518,6 +1921,7 @@ class AnnotationView(context: Context) : View(context) {
         val r = raw ?: return
         val first = r.findPointerIndex(pointerId)
         if (first < 0) return
+        dry()
         removeCallbacks(armHold)
         gesture = Gesture.PAN
         panning = true
@@ -1591,8 +1995,10 @@ class AnnotationView(context: Context) : View(context) {
             it.add(x, y, pressure)
             it.rebuild()
         }
-        inking[id] = Live(stroke, tool)
-        invalidate()
+        val live = Live(id, stroke, tool, piecewise = kind == InkTool.PEN && tool != Tool.MAGIC && Color.alpha(color) == 255)
+        inking[id] = live
+        removeCallbacks(dryStep) // writing goes on: what is wet stays as it is
+        wake(live)
     }
 
     /** Feeds every live pen and eraser in this event, including the samples batched in between. */
@@ -1608,10 +2014,7 @@ class AnnotationView(context: Context) : View(context) {
                 grew = s.add(e.getHistoricalX(i, h), e.getHistoricalY(i, h), e.getHistoricalPressure(i, h)) || grew
             }
             grew = s.add(e.getX(i), e.getY(i), e.getPressure(i)) || grew
-            if (grew) {
-                live.stale = true
-                changed = true
-            }
+            if (grew) wake(live)
         }
         for ((id, r) in erasing) {
             val i = e.findPointerIndex(id)
@@ -1632,48 +2035,56 @@ class AnnotationView(context: Context) : View(context) {
             Tool.MAGIC -> {
                 s.finish()
                 magic.add(Fade(s, SystemClock.uptimeMillis()))
+                unlay(live)
                 postInvalidateOnAnimation()
             }
             else -> {
-                var center: ShapeRecognizer.Point? = null
-                if (live.tool == Tool.SHAPE) {
-                    ShapeRecognizer.recognize(s.points.map { ShapeRecognizer.Point(it.x, it.y) })?.let { shape ->
-                        s.replacePoints(shape.points.map { it.x }, shape.points.map { it.y })
-                        s.uniform = true
-                        center = shape.center
-                    }
+                val shape = if (live.tool == Tool.SHAPE) ShapeRecognizer.recognize(s.points.map { ShapeRecognizer.Point(it.x, it.y) }) else null
+                if (shape != null) {
+                    s.replacePoints(shape.points.map { it.x }, shape.points.map { it.y })
+                    s.uniform = true
                 }
                 s.finish()
                 s.endTime = SystemClock.uptimeMillis()
                 s.group = if (live.tool == Tool.SHAPE) board.nextGroup++ else groupFor(s)
                 strokes.add(s)
-                drawOnLayer(s)
-                val c = center
-                if (c == null) {
+                val c = shape?.center
+                if (shape == null) {
+                    // It stays as written, and where it is: wet, until it dries into the layer.
                     history.record(History.Added(s))
+                    settle(live)
                 } else {
-                    // A circle comes with its centre: a dot of its own (it can be rubbed out on its
-                    // own), in the circle's group (it moves with it); one undo removes both.
-                    val dot = Stroke(s.tool, s.color, s.size * CENTER_DOT, s.speedUnit).also {
-                        it.add(c.x, c.y, 1f)
-                        it.uniform = true
-                        it.finish()
-                        it.endTime = s.endTime
-                        it.group = s.group
+                    // The drawing gives way to the shape made out of it.
+                    unlay(live)
+                    drawOnLayer(s)
+                    if (c == null) {
+                        history.record(History.Added(s))
+                    } else {
+                        // A circle comes with its centre: a dot of its own (it can be rubbed out on its
+                        // own), in the circle's group (it moves with it); one undo removes both.
+                        val dot = Stroke(s.tool, s.color, s.size * CENTER_DOT, s.speedUnit).also {
+                            it.add(c.x, c.y, 1f)
+                            it.uniform = true
+                            it.finish()
+                            it.endTime = s.endTime
+                            it.group = s.group
+                        }
+                        strokes.add(dot)
+                        drawOnLayer(dot)
+                        history.record(History.Edited(listOf(
+                            History.Op(insert = true, index = strokes.lastIndex - 1, stroke = s),
+                            History.Op(insert = true, index = strokes.lastIndex, stroke = dot),
+                        )))
                     }
-                    strokes.add(dot)
-                    drawOnLayer(dot)
-                    history.record(History.Edited(listOf(
-                        History.Op(insert = true, index = strokes.lastIndex - 1, stroke = s),
-                        History.Op(insert = true, index = strokes.lastIndex, stroke = dot),
-                    )))
+                    invalidate()
                 }
             }
         }
-        invalidate()
+        dryLater()
     }
 
     private fun beginErase(id: Int, x: Float, y: Float, radius: Float, time: Long) {
+        dry() // rubbing out, picking up and tapping act on the layer
         val r = Eraser(x, y, radius, time)
         erasing[id] = r
         eraseAt(x, y, radius)
@@ -1689,7 +2100,9 @@ class AnnotationView(context: Context) : View(context) {
 
     /** Drops unfinished ink and lands erasers (e.g. the system cancelled the touch). */
     private fun cancelInk() {
+        for (live in inking.values) unlay(live)
         inking.clear()
+        dryLater()
         if (erasing.isNotEmpty()) {
             erasing.clear()
             commitErase()
@@ -1788,6 +2201,7 @@ class AnnotationView(context: Context) : View(context) {
      * or reaches the app below, or (long press) pastes what was copied.
      */
     private fun beginFinger(e: MotionEvent, i: Int, x: Float, y: Float) {
+        dry()
         pointerId = e.getPointerId(i)
         lastX = x
         lastY = y
@@ -2498,6 +2912,18 @@ class AnnotationView(context: Context) : View(context) {
         const val MARK_OFFLINE_DARK = 0xFFF5B3AC.toInt()
         const val DIRTY_MARGIN = 2f
         const val PREDICT_MAX_DP = 24f
+
+        // Wet ink, in cells that are the layer's tiles.
+        const val CELL = InkLayer.TILE
+        /** Ink reaches a little past its outline (anti-aliasing): that much more of the screen is its. */
+        const val CELL_EDGE = 2
+        /** A piece of a fast stroke is about this long on screen: it fits in a cell or two. */
+        const val PIECE_REACH = CELL * 0.75f
+        /** Pieces overlap by this much of line, on screen. */
+        const val PIECE_OVERLAP = 6f
+        /** Wet ink dries after this long without writing. */
+        const val DRY_MS = 900L
+        const val GLOW_REACH_DP = 16f
 
         // Whiteboard.
         const val GRID_DP = 36f

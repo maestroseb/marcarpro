@@ -428,6 +428,120 @@ class MultiTouchTest {
         Thread.sleep(3000)
     }
 
+    @Test
+    fun inkLooksTheSameWetAndOnceDry() {
+        openWhiteboard()
+        val paper = grab()
+        // A long line of loops with the pen: it is laid down in pieces while it is written.
+        gesture(listOf(List(260) { k -> PointF(300f + k * 4f, 520f + 140f * sin(k * 2 * PI / 52).toFloat()) }), tool = MotionEvent.TOOL_TYPE_STYLUS)
+        val wet = grab() // just lifted: the ink still shows from its wet cells
+        Thread.sleep(1800)
+        val dry = grab() // by now it is in the layer
+        var ink = 0
+        var changed = 0
+        for (y in 330 until 710) for (x in 250 until 1400) {
+            if (differ(dry, paper, x, y, 120)) ink++
+            if (differ(wet, dry, x, y, 6)) changed++
+        }
+        assertTrue("the line is on the board ($ink px)", ink > 4000)
+        assertEquals("drying doesn't change a pixel", 0, changed)
+        stopLayer()
+        assertEquals(1, InkStore.read(whiteboard).count { it.tool == InkTool.PEN })
+    }
+
+    @Test
+    fun inkWrittenOnAZoomedBoardLooksTheSameWetAndOnceDry() {
+        openWhiteboard()
+        // Two fingers spread on the empty paper: it zooms in. Then a long line with the pen.
+        gesture(
+            listOf(
+                List(STEPS + 1) { k -> PointF(900f - k * 4f, 850f) },
+                List(STEPS + 1) { k -> PointF(1000f + k * 4f, 850f) },
+            ),
+        )
+        Thread.sleep(400)
+        val paper = grab()
+        gesture(listOf(List(200) { k -> PointF(300f + k * 5f, 450f + 120f * sin(k * 2 * PI / 50).toFloat()) }), tool = MotionEvent.TOOL_TYPE_STYLUS)
+        val wet = grab()
+        Thread.sleep(1800)
+        val dry = grab()
+        var ink = 0
+        var changed = 0
+        for (y in 280 until 620) for (x in 250 until 1400) {
+            if (differ(dry, paper, x, y, 120)) ink++
+            if (differ(wet, dry, x, y, 6)) changed++
+        }
+        assertTrue("the line is on the board ($ink px)", ink > 4000)
+        assertEquals("drying doesn't change a pixel", 0, changed)
+    }
+
+    @Test
+    fun wetInkIsRubbedOutLikeAnyOther() {
+        openWhiteboard()
+        val paper = grab()
+        // Two lines, and at once (both still wet) an eraser across the first.
+        gesture(listOf(List(STEPS + 1) { k -> PointF(300f + k * 30f, 400f) }), tool = MotionEvent.TOOL_TYPE_STYLUS)
+        gesture(listOf(List(STEPS + 1) { k -> PointF(300f + k * 30f, 600f) }), tool = MotionEvent.TOOL_TYPE_STYLUS)
+        gesture(listOf(List(STEPS + 1) { k -> PointF(750f, 300f + k * 7f) }), tool = MotionEvent.TOOL_TYPE_ERASER)
+        Thread.sleep(500) // the rubbed-out ink fades
+        val after = grab()
+        assertTrue("the first line is cut where the eraser passed", !differ(after, paper, 750, 400, 60))
+        assertTrue("and stays either side", differ(after, paper, 500, 400, 120) && differ(after, paper, 1000, 400, 120))
+        assertTrue("the second line is whole", differ(after, paper, 750, 600, 120))
+        stopLayer()
+        assertEquals("the rubbed line is in two, the other whole", 3, InkStore.read(whiteboard).count { it.tool == InkTool.PEN })
+    }
+
+    @Test
+    fun undoTakesBackInkThatIsStillWet() {
+        openWhiteboard()
+        val paper = grab()
+        gesture(listOf(List(STEPS + 1) { k -> PointF(300f + k * 30f, 400f) }), tool = MotionEvent.TOOL_TYPE_STYLUS)
+        gesture(listOf(List(STEPS + 1) { k -> PointF(300f + k * 30f, 600f) }), tool = MotionEvent.TOOL_TYPE_STYLUS)
+        // A long press on the orb undoes the last line.
+        gesture(listOf(List(60) { PointF(1845f, 420f) }))
+        Thread.sleep(600)
+        val after = grab()
+        assertTrue("the first line stays", differ(after, paper, 750, 400, 120))
+        assertTrue("the second is gone", !differ(after, paper, 750, 600, 60))
+        stopLayer()
+        assertEquals(1, InkStore.read(whiteboard).count { it.tool == InkTool.PEN })
+    }
+
+    @Test
+    fun aCancelledStrokeLeavesNothingBehind() {
+        openWhiteboard()
+        val paper = grab()
+        // A long stroke (already laid in pieces) that the system takes back before it ends.
+        gesture(listOf(List(120) { k -> PointF(300f + k * 8f, 500f) }), tool = MotionEvent.TOOL_TYPE_STYLUS, cancel = true, midway = {
+            assertTrue("it shows while it is written", differ(grab(), paper, 500, 500, 120))
+        })
+        Thread.sleep(300)
+        val after = grab()
+        var left = 0
+        for (y in 460 until 540) for (x in 280 until 1280) if (differ(after, paper, x, y, 60)) left++
+        assertEquals("nothing of it is left on the board", 0, left)
+        stopLayer()
+        assertTrue("nor saved", !whiteboard.exists() || InkStore.read(whiteboard).isEmpty())
+    }
+
+    /** Whether the two screenshots differ at a pixel by more than [by] (the three channels added up). */
+    private fun differ(a: Bitmap, b: Bitmap, x: Int, y: Int, by: Int): Boolean {
+        val p = a.getPixel(x, y)
+        val q = b.getPixel(x, y)
+        return abs((p shr 16 and 0xFF) - (q shr 16 and 0xFF)) + abs((p shr 8 and 0xFF) - (q shr 8 and 0xFF)) + abs((p and 0xFF) - (q and 0xFF)) > by
+    }
+
+    private fun openWhiteboard() {
+        prefs.fingerMode = FingerMode.APPS
+        prefs.stylusSeen = true
+        startLayer()
+        context.startService(Intent(context, OverlayService::class.java).setAction(OverlayService.ACTION_WHITEBOARD))
+        Thread.sleep(1500)
+    }
+
+    private fun grab(): Bitmap = instrumentation.uiAutomation.takeScreenshot()!!
+
     private fun tap(x: Float, y: Float) {
         gesture(listOf(listOf(PointF(x, y), PointF(x, y))))
         Thread.sleep(400)
@@ -448,7 +562,9 @@ class MultiTouchTest {
         PointF(cx + cos(a).toFloat() * r, cy + sin(a).toFloat() * r)
 
     /** Plays several pointer paths at the same time (all the same length). */
-    private fun gesture(paths: List<List<PointF>>, tool: Int = MotionEvent.TOOL_TYPE_FINGER) {
+    private fun gesture(
+        paths: List<List<PointF>>, tool: Int = MotionEvent.TOOL_TYPE_FINGER, cancel: Boolean = false, midway: () -> Unit = {},
+    ) {
         val ui = instrumentation.uiAutomation
         val n = paths.size
         val props = Array(n) { i -> MotionEvent.PointerProperties().apply { id = i; toolType = tool } }
@@ -478,11 +594,12 @@ class MultiTouchTest {
             time += 16
             Thread.sleep(16)
             send(MotionEvent.ACTION_MOVE, n, step)
+            if (step == paths[0].size * 3 / 4) midway()
         }
         val last = paths[0].size - 1
         time += 16
         for (k in n - 1 downTo 1) send(MotionEvent.ACTION_POINTER_UP or (k shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), k + 1, last)
-        send(MotionEvent.ACTION_UP, 1, last)
+        send(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, 1, last)
         Thread.sleep(300)
     }
 
