@@ -98,6 +98,16 @@ class OverlayService : Service() {
         // A new key since 1.5.0: the clear-all button's old spot, top right, is now the page pill's.
         private const val TRASH_POSITION = "clearAll"
         private const val PILL_EDGE_DP = 24f
+        // Docked windows wait here while hidden, far off screen whatever their gravity.
+        private const val PARKED = -20000
+        private const val SHARE_WAIT_MS = 150L
+        // Android's share menu (its package before and after Android 13's own module).
+        private val SHARE_MENUS = setOf("android", "com.android.intentresolver")
+        private const val SHARE_MENU_SETTLE_MS = 800L
+        private const val SHARE_MENU_MAX_MS = 180_000L
+        // A PDF page may be at most 14,400 points a side; images stay under 4096 px a side.
+        private const val PDF_MAX_POINTS = 14000f
+        private const val IMAGE_MAX_PX = 4096f
         private const val CHROME_FADE_MS = 350L
         private const val RING_HIDE_SLACK_MS = 60L
         // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
@@ -161,6 +171,18 @@ class OverlayService : Service() {
         gravity = Gravity.TOP or Gravity.START
         title = "Marcar Pro pages"
     }
+    private var shareCard: ShareCardView? = null
+    private var shareShown = false
+    private var sharing = false
+    private val shareParams = WLP(
+        WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
+        WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN or WLP.FLAG_WATCH_OUTSIDE_TOUCH, PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        title = "Marcar Pro share"
+    }
+    // Docked windows (see [dock]).
+    private val docked = ArrayList<View>()
     private var cropView: CropView? = null
     private var cropping = false
     private var cropFromWhiteboard = false
@@ -312,6 +334,9 @@ class OverlayService : Service() {
         pageKey = TouchRelayService.instance?.page ?: PageKeys.GENERAL
         ink.showBoard(loadBoard(ink, pageKey))
         TouchRelayService.onPageChanged = ::switchPage
+        TouchRelayService.onAppShown = { pkg ->
+            if (inkAway && pkg !in SHARE_MENUS && SystemClock.uptimeMillis() - inkAwayAt > SHARE_MENU_SETTLE_MS) bringInkBack()
+        }
         io.execute(::forgetOldPages)
         ink.listener = AnnotationView.Listener {
             lastActivity = SystemClock.uptimeMillis()
@@ -320,6 +345,31 @@ class OverlayService : Service() {
             handler.removeCallbacks(saveInk)
             handler.postDelayed(saveInk, SAVE_DELAY_MS)
         }
+
+        // 1b. What comes with the whiteboard: background picker, boards list, page pill (with the
+        // share button) and share card. Docked now, under every floating button (see [dock]).
+        // The quick board keeps the last paper chosen; a saved board, its own.
+        paperPicker = PaperPickerView(this, onPick = { p ->
+            if (whiteboards.current == null) prefs.paper = p else whiteboards.setPaper(p, whiteboards.current!!.color)
+            canvas?.paperStyle = p
+        }, onColor = { c ->
+            if (whiteboards.current == null) prefs.paperColor = c else whiteboards.setPaper(whiteboards.current!!.paper, c)
+            canvas?.paperColor = c
+            applyChrome()
+        }, onBoards = ::showBoards).apply {
+            paper = prefs.paper
+            paperColor = prefs.paperColor
+            // Opening the list makes the window taller (upwards): the PC must not get those touches either.
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (paperShown) reservePaper() }
+        }
+        applyBoardPaper()
+        boardList = BoardListView(this, boardListener)
+        pagePill = PagePillView(this, onPrev = { goToPage(whiteboards.page - 1) }, onNext = { goToPage(whiteboards.page + 1) }, onAdd = ::addPage, onShare = ::toggleShare)
+        shareCard = ShareCardView(this, onPick = ::share, onOutside = ::hideShare)
+        dock(paperPicker!!, paperParams)
+        dock(boardList!!, boardsParams)
+        dock(pagePill!!, pillParams)
+        dock(shareCard!!, shareParams)
 
         // 2. Clear-all: press and hold.
         val trash = TrashView(this)
@@ -492,24 +542,6 @@ class OverlayService : Service() {
         handler.postDelayed(updateTick, UPDATE_FIRST_CHECK_MS)
         announceUpdate()
 
-        // 7. The whiteboard's background picker, shown with the whiteboard.
-        // The quick board keeps the last paper chosen; a saved board, its own.
-        paperPicker = PaperPickerView(this, onPick = { p ->
-            if (whiteboards.current == null) prefs.paper = p else whiteboards.setPaper(p, whiteboards.current!!.color)
-            canvas?.paperStyle = p
-        }, onColor = { c ->
-            if (whiteboards.current == null) prefs.paperColor = c else whiteboards.setPaper(whiteboards.current!!.paper, c)
-            canvas?.paperColor = c
-            applyChrome()
-        }, onBoards = ::showBoards).apply {
-            paper = prefs.paper
-            paperColor = prefs.paperColor
-            // Opening the list makes the window taller (upwards): the PC must not get those touches either.
-            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (paperShown) reservePaper() }
-        }
-        applyBoardPaper()
-        boardList = BoardListView(this, boardListener)
-        pagePill = PagePillView(this, onPrev = { goToPage(whiteboards.page - 1) }, onNext = { goToPage(whiteboards.page + 1) }, onAdd = ::addPage)
 
         // It opens with the cursor ("using the screen"); the orb brings the pen, on an ink tool.
         val start = prefs.tool.takeIf { it != Tool.ERASER } ?: Tool.PEN
@@ -542,6 +574,7 @@ class OverlayService : Service() {
     override fun onDestroy() {
         textEditor?.finish(commit = true)
         TouchRelayService.onPageChanged = null
+        TouchRelayService.onAppShown = null
         TouchRelayService.onConnected = null
         handler.removeCallbacksAndMessages(null)
         panel?.onSourceChanged = null
@@ -562,6 +595,8 @@ class OverlayService : Service() {
         showPaperPicker(false)
         hideBoards()
         showPagePill(false)
+        for (v in docked) runCatching { wm.removeView(v) }
+        docked.clear()
         hidePalette()
         whiteFloater?.detach()
         for (q in quickFloaters) q.detach()
@@ -1129,6 +1164,7 @@ class OverlayService : Service() {
     private var pausedBeforeWhiteboard = false
 
     private fun toggleWhiteboard() {
+        bringInkBack()
         textEditor?.finish(commit = true)
         if (!whiteboard) {
             // (Kept when the whiteboard comes back after a cut-out.)
@@ -1167,13 +1203,13 @@ class OverlayService : Service() {
         paperShown = show
         if (!show) {
             p.collapse()
-            runCatching { wm.removeView(p) }
+            park(p, paperParams)
             panel?.clearArea(PanelTouch.AREA_PAPER)
             return
         }
         paperParams.x = dpi(8f)
         paperParams.y = dpi(8f)
-        wm.addView(p, paperParams)
+        unpark(p, paperParams)
         p.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         reservePaper()
     }
@@ -1389,7 +1425,7 @@ class OverlayService : Service() {
             boardsParams.x = dpi(8f) - dpi(10f) // the card's shadow margin lines it up with the picker
             boardsParams.y = dpi(8f) - dpi(10f)
             boardsParams.width = dpi(BoardListView.WIDTH_DP)
-            wm.addView(v, boardsParams)
+            unpark(v, boardsParams)
             v.addOnLayoutChangeListener(reserveBoards)
         }
     }
@@ -1411,7 +1447,7 @@ class OverlayService : Service() {
         if (!boardsShown) return
         boardsShown = false
         v.removeOnLayoutChangeListener(reserveBoards)
-        runCatching { wm.removeView(v) }
+        park(v, boardsParams)
         panel?.clearArea(PanelTouch.AREA_BOARDS)
     }
 
@@ -1421,13 +1457,14 @@ class OverlayService : Service() {
         if (show == pillShown) return
         pillShown = show
         if (!show) {
-            runCatching { wm.removeView(v) }
+            hideShare()
+            park(v, pillParams)
             panel?.clearArea(PanelTouch.AREA_PAGES)
             return
         }
         updatePagePill()
         v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        wm.addView(v, pillParams)
+        pillParams.flags = pillParams.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
         placePagePill()
     }
 
@@ -1447,7 +1484,191 @@ class OverlayService : Service() {
         pillParams.y = edge - m
         runCatching { wm.updateViewLayout(v, pillParams) }
         panel?.setArea(PanelTouch.AREA_PAGES, Rect(pillParams.x, pillParams.y, pillParams.x + w, pillParams.y + h))
+        if (shareShown) placeShareCard()
     }
+
+    // region Docked windows
+
+    /**
+     * Adds a window that comes and goes with the whiteboard, parked off screen. They are all added
+     * once, before the floating buttons: a window added later covers the ones before it, and the
+     * floating buttons (orb, clear-all, whiteboard) must stay on top of everything. Parking (rather
+     * than removing) also keeps the panel from showing a new window's first frame as a grey square.
+     */
+    private fun dock(v: View, p: WLP) {
+        p.flags = p.flags or WLP.FLAG_LAYOUT_NO_LIMITS
+        park(v, p, attached = false)
+        wm.addView(v, p)
+        docked.add(v)
+    }
+
+    /** Off screen and untouchable (no outside touches either). */
+    private fun park(v: View, p: WLP, attached: Boolean = true) {
+        p.flags = p.flags or WLP.FLAG_NOT_TOUCHABLE
+        p.x = PARKED
+        p.y = PARKED
+        if (attached) runCatching { wm.updateViewLayout(v, p) }
+    }
+
+    /** Back where [p] now says, touchable. */
+    private fun unpark(v: View, p: WLP) {
+        p.flags = p.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
+        runCatching { wm.updateViewLayout(v, p) }
+    }
+
+    // endregion
+
+    // region Share
+
+    private fun toggleShare() {
+        if (shareShown) hideShare() else showShare()
+    }
+
+    private fun showShare() {
+        val v = shareCard ?: return
+        if (!whiteboard || shareShown) return
+        hideBoards()
+        shareShown = true
+        v.busy = null
+        v.pages = whiteboards.pages
+        v.boardName = boardTitle()
+        v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        shareParams.flags = shareParams.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
+        placeShareCard()
+        pagePill?.shareOpen = true
+    }
+
+    /** Under the page pill, their right edges lined up. */
+    private fun placeShareCard() {
+        val v = shareCard ?: return
+        val pill = pagePill ?: return
+        val shadow = dpi(10f) - dpi(8f) // the card's shadow margin is a little wider than the pill's
+        shareParams.x = pillParams.x + pill.measuredWidth - v.measuredWidth + shadow
+        shareParams.y = pillParams.y + pill.measuredHeight - dpi(8f) - dpi(10f) + dpi(6f)
+        runCatching { wm.updateViewLayout(v, shareParams) }
+        panel?.setArea(PanelTouch.AREA_SHARE, Rect(shareParams.x, shareParams.y, shareParams.x + v.measuredWidth, shareParams.y + v.measuredHeight))
+    }
+
+    private fun hideShare() {
+        val v = shareCard ?: return
+        if (!shareShown || sharing) return
+        shareShown = false
+        park(v, shareParams)
+        panel?.clearArea(PanelTouch.AREA_SHARE)
+        pagePill?.shareOpen = false
+    }
+
+    /** The board's name for the card and the file: a saved board's own, else "Board" and the day. */
+    private fun boardTitle(): String {
+        val name = whiteboards.current?.name ?: "${getString(R.string.share_quick_name)} ${Boards.nameFor(System.currentTimeMillis())}"
+        return name.replaceFirstChar { it.titlecase() }
+    }
+
+    /**
+     * Shares the whiteboard: every page as one PDF, or the page on screen as a PNG. The pages are
+     * drawn here (main thread: the board's paints), the file is written on the IO thread into
+     * Downloads › Marcar Pro, and then the whiteboard steps aside for Android's share menu (an
+     * activity can't show over our windows).
+     */
+    private fun share(kind: ShareKind) {
+        val ink = canvas ?: return
+        val card = shareCard ?: return
+        if (sharing) return
+        if (!ShareFiles.supported) {
+            hideShare()
+            toast(R.string.share_old_android)
+            return
+        }
+        // Pages not seen yet this session are read first (all of them, for the PDF).
+        val keys = if (kind == ShareKind.PDF) (0 until whiteboards.pages).map { Boards.pageKey(whiteboards.current?.id, it) } else listOf(whiteboards.key)
+        val pages = keys.map { if (it == pageKey) null else loadBoard(ink, it) }
+        if (keys.any { it in loading }) {
+            card.busy = kind
+            handler.postDelayed({ if (shareShown && !sharing) share(kind) }, SHARE_WAIT_MS)
+            return
+        }
+        val lists = pages.map { b -> (b ?: ink.currentBoard).strokes.toList() }.filter { it.isNotEmpty() }
+        if (lists.isEmpty()) {
+            hideShare()
+            toast(R.string.share_empty)
+            return
+        }
+        sharing = true
+        card.busy = kind
+        val title = boardTitle()
+        // Let the card show "Preparing…" before the drawing takes the main thread.
+        handler.post {
+            val name: String
+            val mime: String
+            val write: (java.io.OutputStream) -> Unit
+            if (kind == ShareKind.PDF) {
+                val pdf = android.graphics.pdf.PdfDocument()
+                lists.forEachIndexed { i, list ->
+                    val area = ink.exportArea(list) ?: return@forEachIndexed
+                    // One point per screen pixel (the page fits any screen or sheet); huge boards are scaled down.
+                    val scale = minOf(1f, PDF_MAX_POINTS / maxOf(area.width(), area.height()))
+                    val info = android.graphics.pdf.PdfDocument.PageInfo.Builder(
+                        (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1), i + 1,
+                    ).create()
+                    val page = pdf.startPage(info)
+                    ink.drawExport(page.canvas, list, area, scale)
+                    pdf.finishPage(page)
+                }
+                name = ShareFiles.fileName(title, "pdf")
+                mime = "application/pdf"
+                write = { out -> try { pdf.writeTo(out) } finally { pdf.close() } }
+            } else {
+                val list = lists.first()
+                val area = ink.exportArea(list)!!
+                val scale = minOf(1f, IMAGE_MAX_PX / maxOf(area.width(), area.height()))
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1),
+                    android.graphics.Bitmap.Config.ARGB_8888,
+                )
+                ink.drawExport(android.graphics.Canvas(bmp), list, area, scale)
+                name = ShareFiles.fileName("$title ${getString(R.string.page_short, whiteboards.page + 1)}", "png")
+                mime = "image/png"
+                write = { out -> bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out); bmp.recycle() }
+            }
+            io.execute {
+                val uri = ShareFiles.save(this, name, mime, write)
+                handler.post { shared(uri, mime, title) }
+            }
+        }
+    }
+
+    private fun shared(uri: android.net.Uri?, mime: String, title: String) {
+        sharing = false
+        hideShare()
+        if (uri == null) {
+            toast(R.string.share_failed)
+            return
+        }
+        // The menu is an activity: it shows under our windows, so the whiteboard closes and the screen
+        // is the teacher's (the cursor). The whiteboard button brings everything back.
+        if (!paused) togglePause() else if (whiteboard) toggleWhiteboard()
+        // The ink over the apps would cover the menu: it steps aside until another app comes up
+        // (the menu closed, or sent the file), the teacher uses our controls, or after a while.
+        canvas?.visibility = View.INVISIBLE
+        inkAway = true
+        inkAwayAt = SystemClock.uptimeMillis()
+        handler.postDelayed(inkBack, SHARE_MENU_MAX_MS)
+        runCatching { startActivity(ShareFiles.chooser(this, uri, mime, title)) }
+        toast(R.string.share_pick, long = true)
+    }
+
+    private var inkAway = false
+    private var inkAwayAt = 0L
+    private val inkBack = Runnable { bringInkBack() }
+
+    private fun bringInkBack() {
+        if (!inkAway) return
+        inkAway = false
+        handler.removeCallbacks(inkBack)
+        canvas?.visibility = View.VISIBLE
+    }
+
+    // endregion
 
     private fun updatePagePill() {
         pagePill?.set(whiteboards.page, whiteboards.pages)
@@ -1835,6 +2056,7 @@ class OverlayService : Service() {
      * ink window takes no touch at all, so the finger scrolls natively and nothing lags.
      */
     private fun togglePause() {
+        bringInkBack()
         textEditor?.finish(commit = true)
         // Using the screen means seeing it: the whiteboard closes first (already going to the cursor).
         if (!paused && whiteboard) {

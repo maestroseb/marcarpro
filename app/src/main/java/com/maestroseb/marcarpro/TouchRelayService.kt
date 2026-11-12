@@ -57,6 +57,7 @@ class TouchRelayService : AccessibilityService() {
         val pkg = event?.packageName?.toString() ?: return
         if (pkg == packageName) return
         val switched = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        if (switched) onAppShown?.invoke(pkg)
         if (!switched) {
             // In a browser a new address or tab shows up as changed text; videos and animations
             // change other things all the time and are ignored.
@@ -209,5 +210,8 @@ class TouchRelayService : AccessibilityService() {
 
         /** Called on the main thread when the page on screen changes. */
         var onPageChanged: ((String) -> Unit)? = null
+
+        /** Any app's window came up (its package): to know when Android's share menu has gone. */
+        var onAppShown: ((String) -> Unit)? = null
     }
 }

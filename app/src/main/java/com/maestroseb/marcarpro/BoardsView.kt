@@ -377,10 +377,17 @@ internal class BoardListView(context: Context, private val listener: Listener) :
 /**
  * The whiteboard's pages, fixed in the top right corner: "‹ 2 / 3 › +". The arrows turn the page, the
  * plus adds one at the end. Turning past the first or the last page does nothing (the arrow is
- * faded there). Graphite on white.
+ * faded there). Graphite on white. Just left of it, in the same window (one window less to compose),
+ * the round share button: graphite with a light icon while its card is open.
  */
 @SuppressLint("ViewConstructor")
-internal class PagePillView(context: Context, private val onPrev: () -> Unit, private val onNext: () -> Unit, private val onAdd: () -> Unit) : View(context) {
+internal class PagePillView(
+    context: Context,
+    private val onPrev: () -> Unit,
+    private val onNext: () -> Unit,
+    private val onAdd: () -> Unit,
+    private val onShare: () -> Unit,
+) : View(context) {
     private val margin = dp(8f)
     private val card = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
@@ -411,6 +418,14 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
     private val r = RectF()
     private var pressed = -1
 
+    /** Whether the share card is open (the button shows it). */
+    var shareOpen = false
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
     var page = 0
         private set
     var pages = 1
@@ -436,14 +451,17 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
 
     private val cell get() = dp(CELL_DP)
     private val middle get() = dp(MIDDLE_DP)
+    /** Where the pill starts: after the share button and the gap. */
+    private val pillLeft get() = margin + dp(HEIGHT_DP) + dp(SHARE_GAP_DP)
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension((cell * 3 + middle + 2 * margin).toInt(), (dp(HEIGHT_DP) + 2 * margin).toInt())
+        setMeasuredDimension((pillLeft + cell * 3 + middle + margin).toInt(), (dp(HEIGHT_DP) + 2 * margin).toInt())
     }
 
-    // Parts left to right: previous, the "2 / 3" label, next, add.
+    // Parts left to right: share (4), then the pill's previous, the "2 / 3" label, next, add.
     private fun part(x: Float): Int {
-        val local = x - margin
+        if (x < pillLeft - dp(SHARE_GAP_DP) / 2) return SHARE
+        val local = x - pillLeft
         return when {
             local < cell -> 0
             local < cell + middle -> 1
@@ -452,7 +470,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         }
     }
 
-    private fun left(part: Int): Float = margin + when (part) {
+    private fun left(part: Int): Float = pillLeft + when (part) {
         0 -> 0f
         1 -> cell
         2 -> cell + middle
@@ -461,7 +479,8 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
 
     override fun onDraw(canvas: Canvas) {
         val h = dp(HEIGHT_DP)
-        r.set(margin, margin, width - margin, margin + h)
+        drawShare(canvas, h)
+        r.set(pillLeft, margin, width - margin, margin + h)
         card.color = Chrome.surface
         Chrome.shade(card, dp(8f), dp(2.5f))
         canvas.drawRoundRect(r, h / 2, h / 2, card)
@@ -514,6 +533,41 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         }
     }
 
+    private val shareDot = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** The round share button: three linked dots, graphite on white (inverted while its card is open). */
+    private fun drawShare(canvas: Canvas, h: Float) {
+        val cx = margin + h / 2
+        val cy = margin + h / 2
+        card.color = if (shareOpen) Chrome.icon else Chrome.surface
+        Chrome.shade(card, dp(8f), dp(2.5f))
+        canvas.drawCircle(cx, cy, h / 2, card)
+        if (!shareOpen) {
+            edge.color = Chrome.hairline
+            canvas.drawCircle(cx, cy, h / 2 - dp(0.5f), edge)
+        }
+        if (pressed == SHARE) {
+            pressFill.color = Chrome.pressed
+            canvas.drawCircle(cx, cy, h / 2 - dp(5f), pressFill)
+        }
+        val ink = if (shareOpen) Chrome.surface else Chrome.icon
+        val d = dp(5.5f)
+        val left = cx - d + dp(0.5f)
+        val right = cx + d - dp(0.5f)
+        val old = glyph.strokeWidth
+        glyph.color = ink
+        glyph.alpha = 255
+        glyph.strokeWidth = dp(1.8f)
+        canvas.drawLine(left, cy, right, cy - d, glyph)
+        canvas.drawLine(left, cy, right, cy + d, glyph)
+        glyph.strokeWidth = old
+        shareDot.color = ink
+        val dot = dp(3f)
+        canvas.drawCircle(left, cy, dot, shareDot)
+        canvas.drawCircle(right, cy - d, dot, shareDot)
+        canvas.drawCircle(right, cy + d, dot, shareDot)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
@@ -527,6 +581,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
                     0 -> if (page > 0) onPrev()
                     2 -> if (page < pages - 1) onNext()
                     3 -> onAdd()
+                    SHARE -> onShare()
                 }
             }
         }
@@ -539,5 +594,7 @@ internal class PagePillView(context: Context, private val onPrev: () -> Unit, pr
         const val MIDDLE_DP = 52f
         const val ROLL_DP = 18f
         const val ROLL_MS = 320L
+        const val SHARE_GAP_DP = 6f
+        const val SHARE = 4
     }
 }

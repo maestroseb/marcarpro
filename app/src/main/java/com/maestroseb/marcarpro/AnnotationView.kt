@@ -161,6 +161,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     private val strokes get() = board.strokes
     private val history get() = board.history
     private val camera get() = board.camera
+    /** The board on screen. */
+    internal val currentBoard get() = board
     private val inverse = Matrix()
 
     // Whiteboard: camera gestures (in screen pixels, from the untransformed event).
@@ -727,6 +729,34 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         return bmp
     }
 
+    /**
+     * What of [list] is worth sharing, in board coordinates: all its ink with a margin, and at least
+     * the screen's size (a few words keep the page they were written on). Null if there is no ink.
+     */
+    internal fun exportArea(list: List<Stroke>): RectF? {
+        if (list.isEmpty()) return null
+        val all = RectF(list[0].bounds)
+        for (s in list) all.union(s.bounds)
+        all.inset(-dp(EXPORT_MARGIN_DP), -dp(EXPORT_MARGIN_DP))
+        val minW = maxOf(width, 1).toFloat()
+        val minH = maxOf(height, 1).toFloat()
+        if (all.width() < minW) all.inset(-(minW - all.width()) / 2, 0f)
+        if (all.height() < minH) all.inset(0f, -(minH - all.height()) / 2)
+        return all
+    }
+
+    /**
+     * Draws a page for sharing onto [canvas]: this board's paper and [list], with [area] (board
+     * coordinates) filling a canvas [scale] times its size. Main thread only (it shares the paints).
+     */
+    internal fun drawExport(canvas: Canvas, list: List<Stroke>, area: RectF, scale: Float) {
+        val m = Matrix()
+        m.setTranslate(-area.left, -area.top)
+        m.postScale(scale, scale)
+        drawPaper(canvas, m, area.width() * scale, area.height() * scale, minStep = 0f)
+        canvas.withMatrix(m) { for (s in list) drawStroke(this, s, 1f) }
+    }
+
     private fun drawStroke(canvas: Canvas, s: Stroke, opacity: Float) {
         if (s.tool == InkTool.IMAGE) {
             drawPicture(canvas, s, opacity)
@@ -916,17 +946,17 @@ class AnnotationView(context: Context) : ViewGroup(context) {
      * moves with it, so panning and zooming can be felt. A plain fill plus a few hundred dots or
      * lines: one cheap pass, not a full-screen texture.
      */
-    private fun drawPaper(canvas: Canvas) {
+    private fun drawPaper(canvas: Canvas, cam: Matrix = camera, w: Float = width.toFloat(), h: Float = height.toFloat(), minStep: Float = dp(MIN_GRID_DP)) {
         canvas.drawColor(paperColor.background)
         if (paperStyle == Paper.BLANK) return
-        val k = zoom
+        val k = cam.mapRadius(1f)
         val step = dp(GRID_DP) * k
-        if (step < dp(MIN_GRID_DP)) return // zoomed far out: the pattern would just be noise
-        camera.mapPoints(origin, ZERO)
+        if (step < minStep) return // zoomed far out: the pattern would just be noise
+        cam.mapPoints(origin, ZERO)
         val x0 = origin[0] - kotlin.math.floor(origin[0] / step) * step
         val y0 = origin[1] - kotlin.math.floor(origin[1] / step) * step
-        val cols = (width / step).toInt() + 1
-        val rows = (height / step).toInt() + 1
+        val cols = (w / step).toInt() + 1
+        val rows = (h / step).toInt() + 1
         if (paperStyle == Paper.DOTS) {
             val need = cols * rows * 2
             if (gridPoints.size < need) gridPoints = FloatArray(need)
@@ -948,7 +978,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             else -> step to SINGLE_LINE
         }
         val ry0 = origin[1] - kotlin.math.floor(origin[1] / period) * period - period
-        val ruled = (height / period).toInt() + 2
+        val ruled = (h / period).toInt() + 2
         var strong = 0
         val need = (ruled * offsets.size + cols) * 4
         if (gridLines.size < need) gridLines = FloatArray(need)
@@ -962,13 +992,13 @@ class AnnotationView(context: Context) : ViewGroup(context) {
                 for (i in offsets.indices) {
                     if ((i >= strongFrom) != (pass == 1)) continue
                     val yy = y + offsets[i] * step
-                    gridLines[n++] = 0f; gridLines[n++] = yy; gridLines[n++] = width.toFloat(); gridLines[n++] = yy
+                    gridLines[n++] = 0f; gridLines[n++] = yy; gridLines[n++] = w; gridLines[n++] = yy
                 }
             }
         }
         if (paperStyle == Paper.GRID) for (c in 0 until cols) {
             val x = x0 + c * step
-            gridLines[n++] = x; gridLines[n++] = 0f; gridLines[n++] = x; gridLines[n++] = height.toFloat()
+            gridLines[n++] = x; gridLines[n++] = 0f; gridLines[n++] = x; gridLines[n++] = h
         }
         if (paperStyle == Paper.MONTESSORI) {
             canvas.drawLines(gridLines, 0, strong, linePaint)
@@ -2952,6 +2982,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         /** Space above a cutout on the whiteboard, and between stacked cutouts. */
         const val PICTURE_MARGIN_DP = 24f
         const val MIN_GRID_DP = 12f
+        /** Room round the ink on a shared page. */
+        const val EXPORT_MARGIN_DP = 32f
         val ZERO = floatArrayOf(0f, 0f)
         const val MIN_ZOOM = 0.2f
         const val MAX_ZOOM = 5f
