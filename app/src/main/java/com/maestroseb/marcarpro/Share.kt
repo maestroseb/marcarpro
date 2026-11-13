@@ -6,23 +6,26 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.text.TextPaint
+import android.text.TextUtils
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.graphics.ColorUtils
 import java.io.OutputStream
 
-/** What the share card offers. */
-internal enum class ShareKind { PDF, IMAGE }
+/** Where the share card sends the board's PDF. */
+internal enum class ShareKind { DRIVE, USB }
 
 /**
- * The share card, under the share button: the whole board as a PDF (for Classroom or Drive, the
- * first and suggested choice) or the page on screen as an image. Both are also kept in
- * Downloads › Marcar Pro. A tap outside closes it. Drawn in code, in the controls' material.
+ * The share card, under the share button: the whole board as one PDF, to the teacher's own Drive
+ * (a QR for their phone; the first and suggested choice) or to a USB stick. The PDF is also kept
+ * in Downloads › Marcar Pro. A tap outside closes it. Drawn in code, in the controls' material.
  */
 @SuppressLint("ViewConstructor")
 internal class ShareCardView(context: Context, private val onPick: (ShareKind) -> Unit, private val onOutside: () -> Unit) : View(context) {
@@ -30,18 +33,21 @@ internal class ShareCardView(context: Context, private val onPick: (ShareKind) -
     private val card = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.6f); strokeJoin = Paint.Join.ROUND }
+    private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = dp(1.6f); strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND
+    }
     private val title = text(16f, bold = true)
     private val big = text(15f, bold = true)
     private val small = text(13f)
     private val r = RectF()
+    private val path = Path()
     private var pressed: ShareKind? = null
 
     /** The board's name, under the title. */
     var boardName = ""
         set(value) { field = value; invalidate() }
 
-    /** Pages in the board, for the PDF's label. */
+    /** Pages in the board, for the subtitle. */
     var pages = 1
         set(value) { field = value; invalidate() }
 
@@ -58,7 +64,7 @@ internal class ShareCardView(context: Context, private val onPick: (ShareKind) -
         setMeasuredDimension(dpi(WIDTH_DP), (margin * 2 + dp(HEIGHT_DP)).toInt())
     }
 
-    private fun rowTop(kind: ShareKind) = margin + dp(PAD_DP + HEAD_DP) + if (kind == ShareKind.PDF) 0f else dp(ROW_DP + ROW_GAP_DP)
+    private fun rowTop(kind: ShareKind) = margin + dp(PAD_DP + HEAD_DP) + kind.ordinal * dp(ROW_DP + ROW_GAP_DP)
 
     override fun onDraw(canvas: Canvas) {
         r.set(margin, margin, width - margin, height - margin)
@@ -74,10 +80,11 @@ internal class ShareCardView(context: Context, private val onPick: (ShareKind) -
         title.color = Chrome.text
         canvas.drawText(context.getString(R.string.share_title), x, margin + dp(PAD_DP + 20f), title)
         small.color = Chrome.hint
-        canvas.drawText(boardName, x, margin + dp(PAD_DP + 40f), small)
+        val sub = "$boardName · ${resources.getQuantityString(R.plurals.share_pdf, pages, pages)}"
+        canvas.drawText(TextUtils.ellipsize(sub, TextPaint(small), width - x - margin - dp(PAD_DP), TextUtils.TruncateAt.MIDDLE).toString(), x, margin + dp(PAD_DP + 40f), small)
 
-        drawRow(canvas, ShareKind.PDF, resources.getQuantityString(R.plurals.share_pdf, pages, pages), context.getString(R.string.share_pdf_note))
-        drawRow(canvas, ShareKind.IMAGE, context.getString(R.string.share_image), context.getString(R.string.share_image_note))
+        drawRow(canvas, ShareKind.DRIVE, context.getString(R.string.share_drive), context.getString(R.string.share_drive_note))
+        drawRow(canvas, ShareKind.USB, context.getString(R.string.share_usb), context.getString(R.string.share_usb_note))
 
         val line = height - margin - dp(FOOT_DP)
         edge.color = Chrome.hairline
@@ -89,7 +96,7 @@ internal class ShareCardView(context: Context, private val onPick: (ShareKind) -
     private fun drawRow(canvas: Canvas, kind: ShareKind, label: String, note: String) {
         val top = rowTop(kind)
         r.set(margin + dp(PAD_DP), top, width - margin - dp(PAD_DP), top + dp(ROW_DP))
-        val suggested = kind == ShareKind.PDF
+        val suggested = kind == ShareKind.DRIVE
         val corner = dp(10f)
         if (suggested) {
             fill.color = ColorUtils.setAlphaComponent(OrbStyle.TEAL, if (pressed == kind) 0x3D else 0x21)
@@ -98,24 +105,42 @@ internal class ShareCardView(context: Context, private val onPick: (ShareKind) -
             fill.color = Chrome.pressed
             canvas.drawRoundRect(r, corner, corner, fill)
         }
-        // A sheet (two, stacked, for the PDF) with a line of "writing".
-        val ink = if (suggested) OrbStyle.TEAL_DARK else Chrome.icon
-        icon.color = ink
-        val sx = r.left + dp(12f)
-        val sy = r.centerY() - dp(11f)
-        if (suggested) canvas.drawRoundRect(sx + dp(5f), sy + dp(4f), sx + dp(31f), sy + dp(24f), dp(3f), dp(3f), icon)
-        fill.color = Chrome.surface
-        canvas.drawRoundRect(sx, sy, sx + dp(26f), sy + dp(20f), dp(3f), dp(3f), fill)
-        canvas.drawRoundRect(sx, sy, sx + dp(26f), sy + dp(20f), dp(3f), dp(3f), icon)
-        canvas.drawLine(sx + dp(5f), sy + dp(7f), sx + dp(19f), sy + dp(7f), icon)
-        canvas.drawLine(sx + dp(5f), sy + dp(12f), sx + dp(15f), sy + dp(12f), icon)
+        icon.color = if (suggested) OrbStyle.TEAL_DARK else Chrome.icon
+        val cx = r.left + dp(27f)
+        val cy = r.centerY()
+        if (suggested) drawCloud(canvas, cx, cy) else drawStick(canvas, cx, cy)
 
-        val tx = sx + dp(44f)
+        val tx = r.left + dp(56f)
         big.color = if (suggested) OrbStyle.TEAL_DARK else Chrome.text
         big.typeface = if (suggested) Fonts.bold(context) else Fonts.regular(context)
-        canvas.drawText(label, tx, r.centerY() - dp(2f), big)
+        canvas.drawText(label, tx, cy - dp(2f), big)
         small.color = if (suggested) OrbStyle.TEAL_DARK else Chrome.hint
-        canvas.drawText(if (busy == kind) context.getString(R.string.share_busy) else note, tx, r.centerY() + dp(17f), small)
+        canvas.drawText(if (busy == kind) context.getString(R.string.share_busy) else note, tx, cy + dp(17f), small)
+    }
+
+    /** A cloud with an arrow going up into it. */
+    private fun drawCloud(canvas: Canvas, cx: Float, cy: Float) {
+        val u = dp(1f)
+        path.reset()
+        path.moveTo(cx - 8 * u, cy + 7 * u)
+        path.cubicTo(cx - 15 * u, cy + 7 * u, cx - 15 * u, cy - 2 * u, cx - 9 * u, cy - 2 * u)
+        path.cubicTo(cx - 9 * u, cy - 11 * u, cx + 4 * u, cy - 12 * u, cx + 6 * u, cy - 4 * u)
+        path.cubicTo(cx + 14 * u, cy - 5 * u, cx + 15 * u, cy + 7 * u, cx + 7 * u, cy + 7 * u)
+        path.lineTo(cx + 3 * u, cy + 7 * u)
+        canvas.drawPath(path, icon)
+        canvas.drawLine(cx - 3 * u, cy + 7 * u, cx - 8 * u, cy + 7 * u, icon)
+        canvas.drawLine(cx, cy + 11 * u, cx, cy - 1 * u, icon)
+        canvas.drawLine(cx - 4 * u, cy + 3 * u, cx, cy - 1 * u, icon)
+        canvas.drawLine(cx + 4 * u, cy + 3 * u, cx, cy - 1 * u, icon)
+    }
+
+    /** A USB stick: the body and its metal plug. */
+    private fun drawStick(canvas: Canvas, cx: Float, cy: Float) {
+        val u = dp(1f)
+        canvas.drawRoundRect(cx - 6 * u, cy - 4 * u, cx + 6 * u, cy + 12 * u, 3 * u, 3 * u, icon)
+        canvas.drawRect(cx - 4 * u, cy - 11 * u, cx + 4 * u, cy - 4 * u, icon)
+        canvas.drawLine(cx - 1.5f * u, cy - 8 * u, cx - 1.5f * u, cy - 7 * u, icon)
+        canvas.drawLine(cx + 1.5f * u, cy - 8 * u, cx + 1.5f * u, cy - 7 * u, icon)
     }
 
     private fun kindAt(y: Float): ShareKind? = ShareKind.entries.firstOrNull { y >= rowTop(it) && y < rowTop(it) + dp(ROW_DP) }

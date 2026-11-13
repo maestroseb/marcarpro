@@ -190,19 +190,21 @@
     <string name="version_install">Instalar %s</string>
     <string name="share_title">Compartir pizarra</string>
     <plurals name="share_pdf">
-        <item quantity="one">PDF · 1 página</item>
-        <item quantity="many">PDF · %d páginas</item>
-        <item quantity="other">PDF · %d páginas</item>
+        <item quantity="one">PDF de 1 página</item>
+        <item quantity="many">PDF de %d páginas</item>
+        <item quantity="other">PDF de %d páginas</item>
     </plurals>
-    <string name="share_pdf_note">Para Classroom o Drive</string>
-    <string name="share_image">Imagen de esta página</string>
-    <string name="share_image_note">Para pegar o enviar</string>
     <string name="share_saved_note">También se guarda en Descargas › Marcar Pro</string>
+    <string name="share_drive">A mi Drive</string>
+    <string name="share_drive_note">Escanea un QR con tu móvil</string>
+    <string name="share_usb">Al pendrive</string>
+    <string name="share_usb_note">Pincha uno y elige dónde</string>
+    <string name="share_usb_done">Guardado</string>
+    <string name="share_usb_missing">Este panel no tiene la pantalla «Guardar como»</string>
     <string name="share_busy">Preparando…</string>
     <string name="share_empty">Esta pizarra aún no tiene nada escrito</string>
     <string name="share_failed">No se ha podido guardar. Prueba otra vez.</string>
     <string name="share_old_android">Para compartir hace falta Android 10 o posterior</string>
-    <string name="share_pick">Guardado en Descargas › Marcar Pro · elige dónde enviarlo</string>
     <string name="share_quick_name">Pizarra</string>
     <string name="page_short">pág. %d</string>
 </resources>

@@ -188,18 +188,20 @@
     <string name="version_install">Install %s</string>
     <string name="share_title">Share board</string>
     <plurals name="share_pdf">
-        <item quantity="one">PDF · 1 page</item>
-        <item quantity="other">PDF · %d pages</item>
+        <item quantity="one">1-page PDF</item>
+        <item quantity="other">%d-page PDF</item>
     </plurals>
-    <string name="share_pdf_note">For Classroom or Drive</string>
-    <string name="share_image">Image of this page</string>
-    <string name="share_image_note">To paste or send</string>
     <string name="share_saved_note">Also saved in Downloads › Marcar Pro</string>
+    <string name="share_drive">To my Drive</string>
+    <string name="share_drive_note">Scan a QR code with your phone</string>
+    <string name="share_usb">To a USB stick</string>
+    <string name="share_usb_note">Plug one in and choose where</string>
+    <string name="share_usb_done">Saved</string>
+    <string name="share_usb_missing">This panel has no "Save as" screen</string>
     <string name="share_busy">Preparing…</string>
     <string name="share_empty">There is nothing written on this board yet</string>
     <string name="share_failed">Couldn\'t save it. Try again.</string>
     <string name="share_old_android">Sharing needs Android 10 or later</string>
-    <string name="share_pick">Saved in Downloads › Marcar Pro · choose where to send it</string>
     <string name="share_quick_name">Board</string>
     <string name="page_short">p. %d</string>
 </resources>

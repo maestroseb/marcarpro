@@ -53,6 +53,14 @@
             </intent-filter>
         </activity>
 
+        <!-- «Al pendrive»: Android's "Save as" screen for the board's PDF. -->
+        <activity
+            android:name=".SaveActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=":save"
+            android:theme="@style/Theme.MarcarPro.Launcher" />
+
         <!-- Starts the ink layer at boot (also on the PC source) and after updates. -->
         <receiver
             android:name=".BootReceiver"

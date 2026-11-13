@@ -101,13 +101,16 @@ class OverlayService : Service() {
         // Docked windows wait here while hidden, far off screen whatever their gravity.
         private const val PARKED = -20000
         private const val SHARE_WAIT_MS = 150L
+        private const val PDF_MIME = "application/pdf"
         // Android's share menu (its package before and after Android 13's own module).
-        private val SHARE_MENUS = setOf("android", "com.android.intentresolver")
+        private val SHARE_MENUS = setOf(
+            "android", "com.android.intentresolver", BuildConfig.APPLICATION_ID,
+            "com.android.documentsui", "com.google.android.documentsui",
+        )
         private const val SHARE_MENU_SETTLE_MS = 800L
         private const val SHARE_MENU_MAX_MS = 180_000L
         // A PDF page may be at most 14,400 points a side; images stay under 4096 px a side.
         private const val PDF_MAX_POINTS = 14000f
-        private const val IMAGE_MAX_PX = 4096f
         private const val CHROME_FADE_MS = 350L
         private const val RING_HIDE_SLACK_MS = 60L
         // An arc around the colour dot, pointing to four–five o'clock (mirrored at the right edge):
@@ -335,7 +338,7 @@ class OverlayService : Service() {
         ink.showBoard(loadBoard(ink, pageKey))
         TouchRelayService.onPageChanged = ::switchPage
         TouchRelayService.onAppShown = { pkg ->
-            if (inkAway && pkg !in SHARE_MENUS && SystemClock.uptimeMillis() - inkAwayAt > SHARE_MENU_SETTLE_MS) bringInkBack()
+            if (inkAway && !inkHeld && pkg !in SHARE_MENUS && SystemClock.uptimeMillis() - inkAwayAt > SHARE_MENU_SETTLE_MS) bringInkBack()
         }
         io.execute(::forgetOldPages)
         ink.listener = AnnotationView.Listener {
@@ -575,6 +578,7 @@ class OverlayService : Service() {
         textEditor?.finish(commit = true)
         TouchRelayService.onPageChanged = null
         TouchRelayService.onAppShown = null
+        SaveActivity.onClosed = null
         TouchRelayService.onConnected = null
         handler.removeCallbacksAndMessages(null)
         panel?.onSourceChanged = null
@@ -1565,10 +1569,9 @@ class OverlayService : Service() {
     }
 
     /**
-     * Shares the whiteboard: every page as one PDF, or the page on screen as a PNG. The pages are
-     * drawn here (main thread: the board's paints), the file is written on the IO thread into
-     * Downloads › Marcar Pro, and then the whiteboard steps aside for Android's share menu (an
-     * activity can't show over our windows).
+     * Shares the whiteboard as one PDF of every page. The pages are drawn here (main thread: the
+     * board's paints), the file is written on the IO thread into Downloads › Marcar Pro, and then
+     * it goes to the teacher's Drive or to a USB stick (see [shared]).
      */
     private fun share(kind: ShareKind) {
         val ink = canvas ?: return
@@ -1580,7 +1583,7 @@ class OverlayService : Service() {
             return
         }
         // Pages not seen yet this session are read first (all of them, for the PDF).
-        val keys = if (kind == ShareKind.PDF) (0 until whiteboards.pages).map { Boards.pageKey(whiteboards.current?.id, it) } else listOf(whiteboards.key)
+        val keys = (0 until whiteboards.pages).map { Boards.pageKey(whiteboards.current?.id, it) }
         val pages = keys.map { if (it == pageKey) null else loadBoard(ink, it) }
         if (keys.any { it in loading }) {
             card.busy = kind
@@ -1598,72 +1601,70 @@ class OverlayService : Service() {
         val title = boardTitle()
         // Let the card show "Preparing…" before the drawing takes the main thread.
         handler.post {
-            val name: String
-            val mime: String
-            val write: (java.io.OutputStream) -> Unit
-            if (kind == ShareKind.PDF) {
-                val pdf = android.graphics.pdf.PdfDocument()
-                lists.forEachIndexed { i, list ->
-                    val area = ink.exportArea(list) ?: return@forEachIndexed
-                    // One point per screen pixel (the page fits any screen or sheet); huge boards are scaled down.
-                    val scale = minOf(1f, PDF_MAX_POINTS / maxOf(area.width(), area.height()))
-                    val info = android.graphics.pdf.PdfDocument.PageInfo.Builder(
-                        (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1), i + 1,
-                    ).create()
-                    val page = pdf.startPage(info)
-                    ink.drawExport(page.canvas, list, area, scale)
-                    pdf.finishPage(page)
-                }
-                name = ShareFiles.fileName(title, "pdf")
-                mime = "application/pdf"
-                write = { out -> try { pdf.writeTo(out) } finally { pdf.close() } }
-            } else {
-                val list = lists.first()
-                val area = ink.exportArea(list)!!
-                val scale = minOf(1f, IMAGE_MAX_PX / maxOf(area.width(), area.height()))
-                val bmp = android.graphics.Bitmap.createBitmap(
-                    (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1),
-                    android.graphics.Bitmap.Config.ARGB_8888,
-                )
-                ink.drawExport(android.graphics.Canvas(bmp), list, area, scale)
-                name = ShareFiles.fileName("$title ${getString(R.string.page_short, whiteboards.page + 1)}", "png")
-                mime = "image/png"
-                write = { out -> bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out); bmp.recycle() }
+            val pdf = android.graphics.pdf.PdfDocument()
+            lists.forEachIndexed { i, list ->
+                val area = ink.exportArea(list) ?: return@forEachIndexed
+                // One point per screen pixel (the page fits any screen or sheet); huge boards are scaled down.
+                val scale = minOf(1f, PDF_MAX_POINTS / maxOf(area.width(), area.height()))
+                val info = android.graphics.pdf.PdfDocument.PageInfo.Builder(
+                    (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1), i + 1,
+                ).create()
+                val page = pdf.startPage(info)
+                ink.drawExport(page.canvas, list, area, scale)
+                pdf.finishPage(page)
             }
+            val name = ShareFiles.fileName(title, "pdf")
             io.execute {
-                val uri = ShareFiles.save(this, name, mime, write)
-                handler.post { shared(uri, mime, title) }
+                val uri = ShareFiles.save(this, name, PDF_MIME) { out -> try { pdf.writeTo(out) } finally { pdf.close() } }
+                handler.post { shared(kind, uri, name) }
             }
         }
     }
 
-    private fun shared(uri: android.net.Uri?, mime: String, title: String) {
+    /** The PDF is in Downloads: on to the teacher's Drive or to the USB stick. */
+    private fun shared(kind: ShareKind, uri: android.net.Uri?, name: String) {
         sharing = false
         hideShare()
         if (uri == null) {
             toast(R.string.share_failed)
             return
         }
-        // The menu is an activity: it shows under our windows, so the whiteboard closes and the screen
-        // is the teacher's (the cursor). The whiteboard button brings everything back.
+        when (kind) {
+            ShareKind.USB -> {
+                // Android reports the screens behind "Save as" late: the ink waits for it to close.
+                stepAside()
+                inkHeld = true
+                SaveActivity.onClosed = { inkHeld = false; bringInkBack() }
+                if (runCatching { startActivity(SaveActivity.intent(this, uri, name, PDF_MIME)) }.isFailure) bringInkBack()
+            }
+            ShareKind.DRIVE -> toast(R.string.share_failed)
+        }
+    }
+
+    /**
+     * Android's own screens are activities: they show under our windows, so the whiteboard closes
+     * and the screen is the teacher's (the cursor), and the ink over the apps steps aside until
+     * another app comes up (the screen closed), the teacher uses our controls, or after a while.
+     * The whiteboard button brings everything back.
+     */
+    private fun stepAside() {
         if (!paused) togglePause() else if (whiteboard) toggleWhiteboard()
-        // The ink over the apps would cover the menu: it steps aside until another app comes up
-        // (the menu closed, or sent the file), the teacher uses our controls, or after a while.
         canvas?.visibility = View.INVISIBLE
         inkAway = true
         inkAwayAt = SystemClock.uptimeMillis()
         handler.postDelayed(inkBack, SHARE_MENU_MAX_MS)
-        runCatching { startActivity(ShareFiles.chooser(this, uri, mime, title)) }
-        toast(R.string.share_pick, long = true)
     }
 
     private var inkAway = false
     private var inkAwayAt = 0L
+    private var inkHeld = false
     private val inkBack = Runnable { bringInkBack() }
 
     private fun bringInkBack() {
         if (!inkAway) return
         inkAway = false
+        inkHeld = false
+        SaveActivity.onClosed = null
         handler.removeCallbacks(inkBack)
         canvas?.visibility = View.VISIBLE
     }
