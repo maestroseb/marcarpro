@@ -15,137 +15,84 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-import org.json.JSONArray
+import android.util.Base64
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
 
 /**
- * «A mi Drive», with Google's sign-in for TVs and other devices without a keyboard: the panel shows
- * a QR code (Google's own page, with the code in it) and the teacher allows Marcar Pro, on their
- * phone, to create files in their Drive. Only files it creates: it never sees the rest. The panel
- * then puts the PDF in the folder «Marcar Pro» of that Drive, straight from the panel, and gives
- * the permission back at once. Nothing is kept on the panel and nothing goes through anyone else.
- * IO thread, except [configured].
+ * «A mi Drive», through a small Apps Script web (appsscript/ in this repository). The QR code opens
+ * it on the teacher's phone; when they tap «Guardar», their own Drive opens an upload of one file
+ * in its folder «Marcar Pro» and the web hands the panel only that address. The panel then sends
+ * the PDF straight into the teacher's Drive: the file never goes through the web, so the account
+ * that published it is never a bottleneck. IO thread, except [configured] and [Session].
  */
 internal object DriveLink {
-    private const val SCOPE = "https://www.googleapis.com/auth/drive.file"
-    private const val FOLDER = "Marcar Pro"
-    private const val FOLDER_MIME = "application/vnd.google-apps.folder"
     private const val TIMEOUT_MS = 20_000
+    private val random = SecureRandom()
 
-    /** Whether this build carries the app's Google client (see build.gradle.kts). */
-    val configured get() = BuildConfig.DRIVE_CLIENT_ID.isNotEmpty()
+    /** Whether this build carries the addresses of the web (see build.gradle.kts). */
+    val configured get() = BuildConfig.DRIVE_PANEL_URL.isNotEmpty() && BuildConfig.DRIVE_PHONE_URL.isNotEmpty()
 
-    /** What the teacher needs: the page (with the code in it, for the QR) and the code itself. */
-    class Code(val device: String, val user: String, val page: String, val expiresAt: Long, val interval: Long) {
-        val qr get() = "$page?user_code=${URLEncoder.encode(user, "UTF-8")}"
+    /** One PDF waiting for a teacher: the panel keeps the secret, the QR only carries its hash. */
+    class Session(name: String, val expiresAt: Long) {
+        private val secret = web64(ByteArray(32).also(random::nextBytes))
+        val qr = "${BuildConfig.DRIVE_PHONE_URL}?s=${idOf(secret)}&n=${URLEncoder.encode(name.removeSuffix(".pdf"), "UTF-8")}"
+        internal fun url(action: String) = "${BuildConfig.DRIVE_PANEL_URL}?a=$action&k=$secret"
     }
 
-    sealed interface Poll {
-        class Allowed(val token: String) : Poll
-        data object Waiting : Poll
-        data object Slower : Poll
-        data object Refused : Poll
-        data object Expired : Poll
+    /** What the web says: still waiting, or the address to send the PDF to (only given once). */
+    class Answer(val ready: Boolean, val upload: String?)
+
+    fun ask(session: Session): Answer {
+        val o = answer(open(session.url("estado"), "GET"))
+        return Answer(o.optString("estado") == "listo", o.optString("subida").takeIf { it.startsWith("https://") })
     }
 
-    fun start(): Code {
-        val o = post("https://oauth2.googleapis.com/device/code", "client_id" to BuildConfig.DRIVE_CLIENT_ID, "scope" to SCOPE)
-        return Code(
-            o.getString("device_code"), o.getString("user_code"), o.optString("verification_url", "https://www.google.com/device"),
-            SystemClock.uptimeMillis() + o.optLong("expires_in", 1800) * 1000, o.optLong("interval", 5).coerceAtLeast(1),
-        )
-    }
-
-    fun poll(code: Code): Poll {
-        val o = post(
-            "https://oauth2.googleapis.com/token", "client_id" to BuildConfig.DRIVE_CLIENT_ID,
-            "client_secret" to BuildConfig.DRIVE_CLIENT_SECRET, "device_code" to code.device,
-            "grant_type" to "urn:ietf:params:oauth:grant-type:device_code", errors = true,
-        )
-        o.optString("access_token").takeIf { it.isNotEmpty() }?.let { return Poll.Allowed(it) }
-        return when (o.optString("error")) {
-            "authorization_pending" -> Poll.Waiting
-            "slow_down" -> Poll.Slower
-            "access_denied" -> Poll.Refused
-            "expired_token" -> Poll.Expired
-            else -> error("token: ${o.optString("error")}")
-        }
-    }
-
-    /** Puts [source] in the folder «Marcar Pro» (made the first time) of the teacher's Drive. */
-    fun upload(context: Context, token: String, source: Uri, name: String) {
-        val folder = folder(token)
-        val size = context.contentResolver.openAssetFileDescriptor(source, "r")!!.use { it.length }
-        val meta = JSONObject().put("name", name).put("mimeType", "application/pdf").put("parents", JSONArray().put(folder))
-        val start = open("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", "POST", token).apply {
-            setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            setRequestProperty("X-Upload-Content-Type", "application/pdf")
-            if (size > 0) setRequestProperty("X-Upload-Content-Length", size.toString())
-            doOutput = true
-            outputStream.use { it.write(meta.toString().toByteArray()) }
-        }
-        val session = start.check().getHeaderField("Location") ?: error("no upload session")
-        start.disconnect()
-        open(session, "PUT", token).apply {
+    /** Sends [source] to the upload the teacher's Drive opened, then tells the web it's there. */
+    fun send(context: Context, session: Session, upload: String, source: Uri) {
+        val bytes = context.contentResolver.openInputStream(source)!!.use { it.readBytes() }
+        val c = open(upload, "PUT").apply {
             setRequestProperty("Content-Type", "application/pdf")
             doOutput = true
-            if (size > 0) setFixedLengthStreamingMode(size) else setChunkedStreamingMode(64 * 1024)
-            context.contentResolver.openInputStream(source)!!.use { input -> outputStream.use { input.copyTo(it) } }
-            check()
-            disconnect()
+            setFixedLengthStreamingMode(bytes.size)
+            outputStream.use { it.write(bytes) }
         }
+        val code = c.responseCode
+        c.disconnect()
+        if (code !in 200..299) error("upload: HTTP $code")
+        runCatching { answer(open(session.url("hecho"), "GET")) }
     }
 
-    /** Gives the permission back: the panel can do nothing more in that Drive. */
-    fun revoke(token: String) {
-        runCatching { post("https://oauth2.googleapis.com/revoke", "token" to token, errors = true) }
-    }
+    /** The id the web knows a session by: SHA-256 of the secret, as the web works it out. */
+    private fun idOf(secret: String) = web64(MessageDigest.getInstance("SHA-256").digest(secret.toByteArray()))
 
-    private fun folder(token: String): String {
-        val q = URLEncoder.encode("name = '$FOLDER' and mimeType = '$FOLDER_MIME' and trashed = false", "UTF-8")
-        val found = read(open("https://www.googleapis.com/drive/v3/files?q=$q&spaces=drive&fields=files(id)&pageSize=1", "GET", token).check())
-            .getJSONArray("files")
-        if (found.length() > 0) return found.getJSONObject(0).getString("id")
-        val made = open("https://www.googleapis.com/drive/v3/files?fields=id", "POST", token).apply {
-            setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            doOutput = true
-            outputStream.use { it.write(JSONObject().put("name", FOLDER).put("mimeType", FOLDER_MIME).toString().toByteArray()) }
-        }
-        return read(made.check()).getString("id")
-    }
+    private fun web64(b: ByteArray) = Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 
-    private fun post(url: String, vararg fields: Pair<String, String>, errors: Boolean = false): JSONObject {
-        val body = fields.joinToString("&") { (k, v) -> "$k=${URLEncoder.encode(v, "UTF-8")}" }
-        val c = open(url, "POST", null).apply {
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            doOutput = true
-            outputStream.use { it.write(body.toByteArray()) }
-        }
-        if (!errors) c.check()
-        return read(c)
-    }
-
-    private fun open(url: String, method: String, token: String?) = (URL(url).openConnection() as HttpURLConnection).apply {
+    private fun open(url: String, method: String) = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = method
         connectTimeout = TIMEOUT_MS
         readTimeout = TIMEOUT_MS * 3
         useCaches = false
-        if (token != null) setRequestProperty("Authorization", "Bearer $token")
+        // Apps Script answers from another address (a redirect), always fetched with GET.
+        instanceFollowRedirects = false
     }
 
-    private fun HttpURLConnection.check(): HttpURLConnection {
-        if (responseCode !in 200..299) error("HTTP $responseCode")
-        return this
-    }
-
-    private fun read(c: HttpURLConnection): JSONObject {
-        val stream = if (c.responseCode in 200..299) c.inputStream else c.errorStream
-        val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+    private fun answer(first: HttpURLConnection): JSONObject {
+        var c = first
+        repeat(3) {
+            if (c.responseCode !in 300..399) return@repeat
+            val next = c.getHeaderField("Location") ?: error("redirect without address")
+            c.disconnect()
+            c = open(next, "GET")
+        }
+        if (c.responseCode !in 200..299) error("HTTP ${c.responseCode}")
+        val text = c.inputStream.bufferedReader().use { it.readText() }
         c.disconnect()
-        return if (text.isBlank()) JSONObject() else JSONObject(text)
+        return JSONObject(text)
     }
 }
 
@@ -155,7 +102,7 @@ internal object DriveLink {
  */
 @SuppressLint("ViewConstructor")
 internal class DriveCardView(context: Context, private val onClose: () -> Unit) : View(context) {
-    enum class State { CONNECTING, WAITING, SAVING, DONE, REFUSED, EXPIRED, FAILED }
+    enum class State { CONNECTING, WAITING, SAVING, DONE, EXPIRED, FAILED }
 
     private val margin = dp(12f)
     private val card = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -168,7 +115,6 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
     private val title = text(20f, bold = true)
     private val body = text(15f)
     private val small = text(13f)
-    private val codeText = text(26f, bold = true).apply { letterSpacing = 0.08f }
     private val button = text(15f, bold = true)
     private val r = RectF()
     private val src = Rect()
@@ -182,17 +128,17 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
     var fileName = ""
         set(value) { field = value; invalidate() }
 
-    private var code: DriveLink.Code? = null
+    private var session: DriveLink.Session? = null
 
-    fun show(c: DriveLink.Code) {
-        code = c
+    fun show(c: DriveLink.Session) {
+        session = c
         qr?.recycle()
         qr = qrBitmap(c.qr)
         state = State.WAITING
     }
 
     fun reset() {
-        code = null
+        session = null
         qr?.recycle()
         qr = null
         state = State.CONNECTING
@@ -241,11 +187,7 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
                 center(canvas, context.getString(R.string.drive_step_scan), y, body, Chrome.text)
                 y += dp(22f)
                 center(canvas, context.getString(R.string.drive_step_allow), y, body, Chrome.text)
-                y += dp(26f)
-                center(canvas, context.getString(R.string.drive_code_label), y, small, Chrome.hint)
-                y += dp(34f)
-                center(canvas, code?.user.orEmpty(), y, codeText, OrbStyle.TEAL_DARK)
-                val left = code?.let { ((it.expiresAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0) } ?: 0
+                val left = session?.let { ((it.expiresAt - SystemClock.uptimeMillis()) / 1000).coerceAtLeast(0) } ?: 0
                 y += dp(24f)
                 center(canvas, context.getString(R.string.drive_expires, left / 60, left % 60), y, small, Chrome.hint)
                 postInvalidateDelayed(1000)
@@ -275,7 +217,6 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
                     State.CONNECTING -> R.string.drive_connecting to 0
                     State.SAVING -> R.string.drive_saving to 0
                     State.DONE -> R.string.drive_done to R.string.drive_done_note
-                    State.REFUSED -> R.string.drive_refused to R.string.drive_again_note
                     State.EXPIRED -> R.string.drive_expired to R.string.drive_again_note
                     else -> R.string.drive_failed to R.string.drive_failed_note
                 }
@@ -289,7 +230,7 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
         val busyOrWaiting = state == State.CONNECTING || state == State.WAITING || state == State.SAVING
         fill.color = if (pressed) Chrome.pressed else androidx.core.graphics.ColorUtils.blendARGB(Chrome.surface, Chrome.text, 0.06f)
         canvas.drawRoundRect(b, b.height() / 2, b.height() / 2, fill)
-        val label = context.getString(if (busyOrWaiting && state != State.SAVING) R.string.drive_cancel else R.string.drive_close)
+        val label = context.getString(if (busyOrWaiting) R.string.drive_cancel else R.string.drive_close)
         center(canvas, label, b.centerY() + button.textSize * 0.35f, button, Chrome.text)
     }
 
@@ -322,7 +263,7 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
 
     companion object {
         private const val WIDTH_DP = 340f
-        private const val HEIGHT_DP = 500f
+        private const val HEIGHT_DP = 440f
         private const val PAD_DP = 18f
         private const val QR_DP = 200f
 

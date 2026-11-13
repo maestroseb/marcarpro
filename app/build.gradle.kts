@@ -7,10 +7,10 @@ val releaseKey = File(System.getProperty("user.home"), ".marcarpro/keystore.prop
     .takeIf { it.exists() }
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 
-// «A mi Drive»: the app's Google client (Google Cloud, type "TVs and limited input devices"),
-// also outside the project: ~/.marcarpro/google.properties with clientId and clientSecret.
+// «A mi Drive»: the two addresses of the school's Apps Script web (appsscript/README.md), also
+// outside the project: ~/.marcarpro/drive.properties with panelUrl and phoneUrl.
 // Without it the build works and the card says Drive isn't set up.
-val googleClient = File(System.getProperty("user.home"), ".marcarpro/google.properties")
+val driveWeb = File(System.getProperty("user.home"), ".marcarpro/drive.properties")
     .takeIf { it.exists() }
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 
@@ -32,8 +32,8 @@ android {
         // Where updates come from: the GitHub repository whose latest release (tag v<versionName>)
         // carries the signed APK. Empty = no updates.
         buildConfigField("String", "UPDATE_REPO", "\"maestroseb/marcarpro\"")
-        buildConfigField("String", "DRIVE_CLIENT_ID", "\"${googleClient?.getProperty("clientId").orEmpty()}\"")
-        buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${googleClient?.getProperty("clientSecret").orEmpty()}\"")
+        buildConfigField("String", "DRIVE_PANEL_URL", "\"${driveWeb?.getProperty("panelUrl").orEmpty()}\"")
+        buildConfigField("String", "DRIVE_PHONE_URL", "\"${driveWeb?.getProperty("phoneUrl").orEmpty()}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

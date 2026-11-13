@@ -103,6 +103,8 @@ class OverlayService : Service() {
         private const val SHARE_WAIT_MS = 150L
         private const val PDF_MIME = "application/pdf"
         private const val DRIVE_DONE_MS = 6000L
+        private const val DRIVE_ASK_MS = 2500L
+        private const val DRIVE_QR_MS = 5 * 60_000L
         // Android's share menu (its package before and after Android 13's own module).
         private val SHARE_MENUS = setOf(
             "android", "com.android.intentresolver", BuildConfig.APPLICATION_ID,
@@ -1670,7 +1672,7 @@ class OverlayService : Service() {
 
     /**
      * «A mi Drive»: the card with the QR code, in the middle of the screen, while a thread asks
-     * Google whether the teacher has allowed it yet and then sends the PDF (see [DriveLink]).
+     * the web whether the teacher tapped «Guardar» and then sends the PDF to their Drive (see [DriveLink]).
      */
     private fun showDrive(uri: android.net.Uri, name: String) {
         val v = driveCard ?: return
@@ -1695,8 +1697,6 @@ class OverlayService : Service() {
 
     private fun closeDrive() {
         val v = driveCard ?: return
-        // While the PDF is going up the card stays: closing it would not stop the upload.
-        if (v.state == DriveCardView.State.SAVING) return
         driveRun?.cancelled = true
         driveRun = null
         if (!driveShown) return
@@ -1714,34 +1714,27 @@ class OverlayService : Service() {
         private fun show(state: DriveCardView.State) = handler.post { if (!cancelled) driveCard?.state = state }
 
         override fun run() {
-            var token: String? = null
             try {
-                val code = DriveLink.start()
-                handler.post { if (!cancelled) driveCard?.show(code) }
-                var wait = code.interval * 1000
-                while (!cancelled && SystemClock.uptimeMillis() < code.expiresAt) {
-                    Thread.sleep(wait)
+                val session = DriveLink.Session(name, SystemClock.uptimeMillis() + DRIVE_QR_MS)
+                handler.post { if (!cancelled) driveCard?.show(session) }
+                var upload: String? = null
+                while (!cancelled && upload == null) {
+                    Thread.sleep(DRIVE_ASK_MS)
                     if (cancelled) return
-                    when (val r = DriveLink.poll(code)) {
-                        is DriveLink.Poll.Allowed -> { token = r.token; break }
-                        DriveLink.Poll.Waiting -> Unit
-                        DriveLink.Poll.Slower -> wait += 5000
-                        DriveLink.Poll.Refused -> return show(DriveCardView.State.REFUSED).let { }
-                        DriveLink.Poll.Expired -> break
-                    }
+                    if (SystemClock.uptimeMillis() > session.expiresAt) return show(DriveCardView.State.EXPIRED).let { }
+                    // A moment without internet: ask again.
+                    val a = runCatching { DriveLink.ask(session) }.getOrNull() ?: continue
+                    if (a.ready) upload = a.upload ?: error("no upload address")
                 }
                 if (cancelled) return
-                val t = token ?: return show(DriveCardView.State.EXPIRED).let { }
                 show(DriveCardView.State.SAVING)
-                DriveLink.upload(this@OverlayService, t, uri, name)
+                DriveLink.send(this@OverlayService, session, upload!!, uri)
                 show(DriveCardView.State.DONE)
                 handler.postDelayed({ if (driveRun === this && driveCard?.state == DriveCardView.State.DONE) closeDrive() }, DRIVE_DONE_MS)
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
                 android.util.Log.w("MarcarPro", "drive: $e")
                 show(DriveCardView.State.FAILED)
-            } finally {
-                token?.let(DriveLink::revoke)
             }
         }
     }

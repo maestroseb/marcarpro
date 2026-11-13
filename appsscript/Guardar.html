@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    :root { --teal: #3e8784; --teal-dark: #2c6461; --ink: #1f2a2a; --muted: #5f6b6b; --paper: #f4f6f5; --line: #dce2e0; --red: #c8443c; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Roboto, sans-serif; background: var(--paper); color: var(--ink); }
+    main { max-width: 440px; margin: 0 auto; padding: 28px 18px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 26px 20px; text-align: center; }
+    h1 { font-size: 22px; margin: 4px 0 6px; text-wrap: balance; }
+    .muted { color: var(--muted); margin: 0 0 18px; }
+    .file { display: flex; gap: 12px; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 0 0 22px; }
+    .file b { display: block; word-break: break-word; }
+    .file span { color: var(--muted); font-size: 14px; }
+    .pdf { flex: none; width: 40px; height: 48px; border-radius: 6px; background: #fbe9e7; color: var(--red); font: 700 12px/48px system-ui, sans-serif; }
+    .go { width: 100%; border: 0; border-radius: 999px; padding: 16px; font-size: 18px; font-weight: 600; background: var(--teal); color: #fff; }
+    .go:disabled { opacity: .6; }
+    .msg { margin: 16px 0 0; font-size: 16px; min-height: 1.4em; }
+    .ok { width: 64px; height: 64px; margin: 0 auto 8px; border-radius: 50%; background: var(--teal); color: #fff; font-size: 36px; line-height: 64px; }
+    .err { color: var(--red); }
+    a.link { display: inline-block; margin-top: 14px; color: var(--teal-dark); font-weight: 600; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card" id="card">
+    <h1>Guardar en tu Drive</h1>
+    <? if (!id) { ?>
+      <p class="err">Este código QR no es válido. Vuelve a pulsar «A mi Drive» en el panel.</p>
+    <? } else if (!permitido) { ?>
+      <p class="err">La cuenta <b><?= email || '(desconocida)' ?></b> no puede usar este servicio.<br>Entra con tu cuenta del centro.</p>
+    <? } else { ?>
+      <p class="muted"><?= email ?></p>
+      <div class="file"><div class="pdf">PDF</div><div><b><?= nombre ?></b><span>Irá a la carpeta «Marcar Pro» de tu Drive</span></div></div>
+      <button class="go" id="go">Guardar en mi Drive</button>
+      <p class="msg" id="msg"></p>
+    <? } ?>
+  </div>
+</main>
+<? if (id && permitido) { ?>
+<script>
+  var ID = <?!= JSON.stringify(id) ?>;  // validado en el servidor: [A-Za-z0-9_-]{43}
+  var NOMBRE = <?!= JSON.stringify(nombre) ?>;
+  var go = document.getElementById('go');
+  var msg = document.getElementById('msg');
+
+  function fallo(texto) {
+    go.disabled = false;
+    msg.className = 'msg err';
+    msg.textContent = texto;
+  }
+
+  function listo() {
+    document.getElementById('card').innerHTML =
+      '<div class="ok">✓</div><h1>¡Guardado!</h1><p class="muted">Está en la carpeta «Marcar Pro» de tu Drive.<br>Ya puedes cerrar esta página.</p>';
+  }
+
+  // El panel sube el PDF directamente a tu Drive: aquí solo esperamos su aviso.
+  function esperar(intentos) {
+    google.script.run.withSuccessHandler(function (e) {
+      if (e === 'guardado') return listo();
+      if (intentos <= 0) {
+        msg.className = 'msg';
+        msg.textContent = 'El panel sigue enviándolo. Mira el panel: dirá «Guardado» cuando termine.';
+        return;
+      }
+      setTimeout(function () { esperar(intentos - 1); }, 2000);
+    }).withFailureHandler(function () { setTimeout(function () { esperar(intentos - 1); }, 2000); }).estado(ID);
+  }
+
+  go.onclick = function () {
+    go.disabled = true;
+    msg.className = 'msg';
+    msg.textContent = 'Preparando tu Drive…';
+    google.script.run
+      .withSuccessHandler(function () {
+        msg.textContent = 'El panel está enviando el PDF…';
+        esperar(45);
+      })
+      .withFailureHandler(function (e) { fallo((e && e.message) || 'No se ha podido preparar. Inténtalo de nuevo.'); })
+      .preparar(ID, NOMBRE);
+  };
+</script>
+<? } ?>
+</body>
+</html>
