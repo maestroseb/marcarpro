@@ -25,9 +25,9 @@ var SUBIDA = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resuma
 
 function doGet(e) {
   var p = (e && e.parameter) || {};
-  if (p.a === 'estado') return estadoPanel_(p.k);
+  if (p.a === 'estado') return estadoPanel_(p.k, p.n);
   if (p.a === 'hecho') return hecho_(p.k);
-  if (p.s) return pagina_(p.s, p.n);
+  if (p.s) return pagina_(corto_(p.s), p.n);
   return HtmlService.createHtmlOutput('<p style="font-family:sans-serif">Marcar Pro: escanea el QR que aparece en el panel.</p>')
     .setTitle('Marcar Pro');
 }
@@ -35,8 +35,9 @@ function doGet(e) {
 /** La página del móvil. */
 function pagina_(id, nombre) {
   var t = HtmlService.createTemplateFromFile('Guardar');
-  t.id = valido_(id) ? id : '';
-  t.nombre = limpio_(nombre);
+  t.id = id;
+  // El nombre lo trae el QR (paneles 1.9.0) o lo dejó el panel en su primera consulta.
+  t.nombre = limpio_(nombre || (id && CacheService.getScriptCache().get('n_' + id)));
   t.email = correoActual_();
   t.permitido = permitido_(t.email);
   return t.evaluate()
@@ -49,6 +50,7 @@ function pagina_(id, nombre) {
  * Drive la subida de UN archivo en la carpeta «Marcar Pro» y deja la dirección para el panel.
  */
 function preparar(id, nombre) {
+  id = corto_(id);
   comprobar_(id);
   var cache = CacheService.getScriptCache();
   var lock = LockService.getScriptLock();
@@ -59,25 +61,29 @@ function preparar(id, nombre) {
   } finally {
     lock.releaseLock();
   }
-  var r = pedir_(SUBIDA, 'post', { name: limpio_(nombre), mimeType: 'application/pdf', parents: [carpeta_()] }, { 'X-Upload-Content-Type': 'application/pdf' });
+  var carpeta = carpeta_();
+  var r = pedir_(SUBIDA, 'post', { name: limpio_(nombre), mimeType: 'application/pdf', parents: [carpeta] }, { 'X-Upload-Content-Type': 'application/pdf' });
   var subida = r.getHeaders()['Location'] || r.getHeaders()['location'];
   if (!subida) throw new Error('Tu Drive no ha aceptado el archivo. Inténtalo de nuevo.');
   cache.put('m_' + id, JSON.stringify({ estado: 'listo', subida: subida }), VIDA);
-  return true;
+  return { carpeta: 'https://drive.google.com/drive/folders/' + carpeta };
 }
 
 /** Desde el móvil, para saber cuándo ha terminado el panel. */
 function estado(id) {
-  if (!valido_(id)) return 'nada';
+  id = corto_(id);
+  if (!id) return 'nada';
   var m = CacheService.getScriptCache().get('m_' + id);
   return m ? JSON.parse(m).estado : 'nada';
 }
 
 /** El panel pregunta con su secreto. La dirección de subida solo se entrega una vez. */
-function estadoPanel_(clave) {
+function estadoPanel_(clave, nombre) {
   if (!valido_(clave)) return json_({ estado: 'nada' });
   var id = idDeSesion_(clave);
   var cache = CacheService.getScriptCache();
+  // Primera consulta del panel: el nombre de la pizarra, para que el QR no tenga que llevarlo.
+  if (nombre) cache.put('n_' + id, limpio_(nombre), VIDA);
   var m = cache.get('m_' + id);
   if (!m) return json_({ estado: 'esperando' });
   var d = JSON.parse(m);
@@ -121,14 +127,27 @@ function pedir_(url, metodo, cuerpo, cabeceras) {
 }
 
 function comprobar_(id) {
-  if (!valido_(id)) throw new Error('Código QR no válido. Vuelve a escanearlo.');
+  if (!id) throw new Error('Código QR no válido. Vuelve a escanearlo.');
   if (!permitido_(correoActual_())) throw new Error('Entra con tu cuenta del centro para guardar.');
+  // Seguro: el PDF solo puede ir al Drive de quien está guardando. Si la publicación «docentes»
+  // se ejecutara como quien la publicó, iría a su Drive: mejor no guardar.
+  var efectivo = '';
+  try { efectivo = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  if (efectivo !== correoActual_()) throw new Error('Esta web está mal publicada (se ejecuta con otra cuenta). Avisa a quien la publicó: «docentes» debe ejecutarse como «Usuario que accede a la aplicación web».');
 }
 
-/** SHA-256 en base64url sin relleno: el panel guarda el secreto, el QR solo lleva esto. */
+/**
+ * SHA-256 del secreto en base64url, sus 22 primeras letras (128 bits): el panel guarda el
+ * secreto y el QR solo lleva esto (así es más corto y menos denso).
+ */
 function idDeSesion_(clave) {
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, clave, Utilities.Charset.UTF_8);
-  return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/, '');
+  return Utilities.base64EncodeWebSafe(bytes).slice(0, 22);
+}
+
+/** El id del QR, recortado a 22 letras (los paneles 1.9.0 lo mandan entero), o '' si no vale. */
+function corto_(id) {
+  return /^[A-Za-z0-9_-]{22}([A-Za-z0-9_-]{21})?$/.test(String(id || '')) ? String(id).slice(0, 22) : '';
 }
 
 function valido_(s) {

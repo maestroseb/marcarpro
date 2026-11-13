@@ -36,5 +36,9 @@ Se publica **una vez**, con una cuenta del dominio educativo. Los docentes no pu
    phoneUrl=https://script.google.com/a/macros/…/exec
    ```
 
+**Importante:** al publicar una versión nueva, comprueba siempre que «docentes» sigue en
+«Usuario que accede a la aplicación web» (puede quedarse en «Yo»). Si estuviera en «Yo», la web
+se niega a guardar y lo avisa, para que ningún PDF acabe en el Drive de quien la publicó.
+
 Si cambias el código, publica con **Implementar → Gestionar implementaciones → ✏ → Versión:
 Nueva**, en las dos implementaciones, para que la URL no cambie.

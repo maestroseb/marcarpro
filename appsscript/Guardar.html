@@ -19,7 +19,7 @@
     .msg { margin: 16px 0 0; font-size: 16px; min-height: 1.4em; }
     .ok { width: 64px; height: 64px; margin: 0 auto 8px; border-radius: 50%; background: var(--teal); color: #fff; font-size: 36px; line-height: 64px; }
     .err { color: var(--red); }
-    a.link { display: inline-block; margin-top: 14px; color: var(--teal-dark); font-weight: 600; }
+    a.link { display: block; margin-top: 18px; text-decoration: none; text-align: center; }
   </style>
 </head>
 <body>
@@ -51,9 +51,12 @@
     msg.textContent = texto;
   }
 
+  var CARPETA = '';
+
   function listo() {
     document.getElementById('card').innerHTML =
-      '<div class="ok">✓</div><h1>¡Guardado!</h1><p class="muted">Está en la carpeta «Marcar Pro» de tu Drive.<br>Ya puedes cerrar esta página.</p>';
+      '<div class="ok">✓</div><h1>¡Guardado!</h1><p class="muted">Está en la carpeta «Marcar Pro» de tu Drive.</p>' +
+      (CARPETA ? '<a class="go link" href="' + CARPETA + '">Abrir la carpeta en Drive</a>' : '');
   }
 
   // El panel sube el PDF directamente a tu Drive: aquí solo esperamos su aviso.
@@ -74,7 +77,8 @@
     msg.className = 'msg';
     msg.textContent = 'Preparando tu Drive…';
     google.script.run
-      .withSuccessHandler(function () {
+      .withSuccessHandler(function (r) {
+        if (r && /^https:\/\/drive\.google\.com\/drive\/folders\/[A-Za-z0-9_-]+$/.test(r.carpeta || '')) CARPETA = r.carpeta;
         msg.textContent = 'El panel está enviando el PDF…';
         esperar(45);
       })

@@ -40,7 +40,10 @@ internal object DriveLink {
     /** One PDF waiting for a teacher: the panel keeps the secret, the QR only carries its hash. */
     class Session(name: String, val expiresAt: Long) {
         private val secret = web64(ByteArray(32).also(random::nextBytes))
-        val qr = "${BuildConfig.DRIVE_PHONE_URL}?s=${idOf(secret)}&n=${URLEncoder.encode(name.removeSuffix(".pdf"), "UTF-8")}"
+        /** Only the web's address and a short id: the fewer letters, the plainer the code. */
+        val qr = "${BuildConfig.DRIVE_PHONE_URL}?s=${idOf(secret)}"
+        /** The board's name goes to the web with the first question instead of in the QR. */
+        internal var name: String? = name.removeSuffix(".pdf")
         internal fun url(action: String) = "${BuildConfig.DRIVE_PANEL_URL}?a=$action&k=$secret"
     }
 
@@ -48,7 +51,9 @@ internal object DriveLink {
     class Answer(val ready: Boolean, val upload: String?)
 
     fun ask(session: Session): Answer {
-        val o = answer(open(session.url("estado"), "GET"))
+        val first = session.name?.let { "&n=${URLEncoder.encode(it, "UTF-8")}" }.orEmpty()
+        val o = answer(open(session.url("estado") + first, "GET"))
+        session.name = null
         return Answer(o.optString("estado") == "listo", o.optString("subida").takeIf { it.startsWith("https://") })
     }
 
@@ -67,8 +72,8 @@ internal object DriveLink {
         runCatching { answer(open(session.url("hecho"), "GET")) }
     }
 
-    /** The id the web knows a session by: SHA-256 of the secret, as the web works it out. */
-    private fun idOf(secret: String) = web64(MessageDigest.getInstance("SHA-256").digest(secret.toByteArray()))
+    /** The id the web knows a session by: SHA-256 of the secret, its first 22 letters (128 bits). */
+    private fun idOf(secret: String) = web64(MessageDigest.getInstance("SHA-256").digest(secret.toByteArray())).take(22)
 
     private fun web64(b: ByteArray) = Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 
@@ -271,7 +276,7 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
         private fun qrBitmap(text: String): Bitmap {
             val m = QRCodeWriter().encode(
                 text, BarcodeFormat.QR_CODE, 0, 0,
-                mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M, EncodeHintType.MARGIN to 2),
+                mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 2),
             )
             val px = IntArray(m.width * m.height) { if (m[it % m.width, it / m.width]) 0xFF000000.toInt() else -1 }
             return Bitmap.createBitmap(px, m.width, m.height, Bitmap.Config.ARGB_8888)
