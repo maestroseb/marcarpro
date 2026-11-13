@@ -262,7 +262,7 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
     }
 
     companion object {
-        private const val WIDTH_DP = 340f
+        private const val WIDTH_DP = 380f
         private const val HEIGHT_DP = 440f
         private const val PAD_DP = 18f
         private const val QR_DP = 200f
