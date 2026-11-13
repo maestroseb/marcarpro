@@ -2753,6 +2753,13 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         return Stroke.text(text, color, size, x, y, body.width, body.height, u, v).also { it.body = body }
     }
 
+    /** Whether the ink on screen covers ([x], [y]) in screen pixels, give or take [radius]. */
+    internal fun inkAt(x: Float, y: Float, radius: Float): Boolean {
+        val p = toBoard(x, y)
+        val r = radius / zoom
+        return board.strokes.any { it.hits(p[0], p[1], r) }
+    }
+
     private fun toBoard(x: Float, y: Float): FloatArray {
         val p = floatArrayOf(x, y)
         camera.invert(inverse)

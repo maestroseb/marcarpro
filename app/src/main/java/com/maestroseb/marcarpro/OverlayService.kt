@@ -82,7 +82,8 @@ class OverlayService : Service() {
         private const val CROP_SETTLE_MS = 120L
         private const val CROP_AFTER_WHITEBOARD_MS = 400L
         private const val CROP_LOADING_RETRY_MS = 100L
-        private const val BLANK_GRID = 15
+        private const val BLANK_GRID = 20
+        private const val BLANK_INK_DP = 6f
         private const val BLANK_TOLERANCE = 20
         private const val BLANK_SHARE = 0.9f
         private const val PASTE_FOCUS_MS = 400L
@@ -123,7 +124,7 @@ class OverlayService : Service() {
         private const val SETUP_POLL_MS = 1000L
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
         private const val PANEL_CROP_TIMEOUT_MS = 10L * 60 * 1000
-        private const val PANEL_CROP_RETRIES = 12
+        private const val PANEL_CROP_RETRIES = 20
         private const val PANEL_CROP_RETRY_MS = 150L
         private const val PANEL_CROP_WATCH_MS = 150L
         private const val PASTE_MAX_PX = 2400
@@ -1767,13 +1768,22 @@ class OverlayService : Service() {
      * The scissors: the screen is captured (without our controls), frozen, and a box drawn on it
      * goes to the whiteboard, under the cutouts already there, with room below to write.
      */
-    private fun startCrop() {
+    private fun startCrop(sourceAsked: Boolean = false) {
         textEditor?.finish(commit = true)
         if (cropping) return
+        // The source is asked again right now: the last answer (every 2 s) may be late or missing,
+        // and Android's own capture of the PC comes out grey.
+        val touch = panel
+        if (!sourceAsked && !external && touch?.available == true) {
+            touch.querySource { reply ->
+                handler.post {
+                    if (PanelTouch.sourceOf(reply)?.let { it != "ANDROID" } == true) cropExternal() else startCrop(sourceAsked = true)
+                }
+            }
+            return
+        }
         if (external) {
-            // The panel gives apps no picture of the PC or HDMI (it refuses VIDEO_AND_OSD shots):
-            // its own Crop can, so that one does the cutting.
-            if (panelCrop.available) startPanelCrop() else toast(R.string.crop_external, long = true)
+            cropExternal()
             return
         }
         val relay = TouchRelayService.instance
@@ -1794,6 +1804,11 @@ class OverlayService : Service() {
         if (whiteboard) toggleWhiteboard()
         showControls(false)
         handler.postDelayed({ shoot(relay, wasWhiteboard) }, if (wasWhiteboard) CROP_AFTER_WHITEBOARD_MS else CROP_SETTLE_MS)
+    }
+
+    /** The panel gives apps no picture of the PC or HDMI (it refuses VIDEO_AND_OSD shots): its own Crop can. */
+    private fun cropExternal() {
+        if (panelCrop.available) startPanelCrop() else toast(R.string.crop_external, long = true)
     }
 
     // On the PC or HDMI: the panel's own Crop cuts out, then its saved pictures come to the whiteboard.
@@ -1863,7 +1878,8 @@ class OverlayService : Service() {
                 panelCropReading = true
                 io.execute {
                     val saved = panelCrop.savedSince(since)
-                    val images = saved.mapNotNull { uri -> runCatching { decodeImage(uri) }.getOrNull()?.let { uri to it } }
+                    // Only whole files: one still being written decodes with its missing part in grey.
+                    val images = saved.mapNotNull { uri -> runCatching { decodeWhole(uri) }.getOrNull()?.let { uri to it } }
                     handler.post {
                         panelCropReading = false
                         if (since == panelCropSince && images.isNotEmpty()) panelCropRead = images
@@ -1993,7 +2009,12 @@ class OverlayService : Service() {
      */
     private fun isBlank(shot: android.graphics.Bitmap): Boolean {
         val n = BLANK_GRID
-        val samples = IntArray(n * n) { k -> shot[shot.width * (k % n + 1) / (n + 1), shot.height * (k / n + 1) / (n + 1)] }
+        // Our own ink is in the capture: the points under it don't count (however much is written).
+        val ink = canvas?.takeIf { it.visibility == View.VISIBLE }
+        val clear = dp(BLANK_INK_DP)
+        val all = (0 until n * n).map { k -> shot.width * (k % n + 1) / (n + 1) to shot.height * (k / n + 1) / (n + 1) }
+        val free = all.filter { (x, y) -> ink?.inkAt(x.toFloat(), y.toFloat(), clear) != true }
+        val samples = (if (free.size >= all.size / 4) free else all).map { (x, y) -> shot[x, y] }.toIntArray()
         val first = samples.asList().groupingBy { it and 0xF0F0F0 }.eachCount().maxByOrNull { it.value }?.key ?: return true
         val same = samples.count { c ->
             val d = c and 0xFFFFFF
@@ -2111,6 +2132,22 @@ class OverlayService : Service() {
                 if (image == null) toast(R.string.paste_failed) else placePicture(image, android.graphics.PointF(x, y))
             }
         }
+    }
+
+    /**
+     * The panel's cut-out, only once its file is whole (a JPEG ends with its EOI marker, a PNG
+     * with IEND): read too soon, Android fills the missing part in grey. Null = not yet.
+     */
+    private fun decodeWhole(uri: android.net.Uri): android.graphics.Bitmap? {
+        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        if (!wholeImage(bytes)) return null
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > PASTE_MAX_PX) sample *= 2
+        val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
     }
 
     /** Reads an image, scaled down by halves until its longer side is at most [PASTE_MAX_PX]. */

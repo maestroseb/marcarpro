@@ -104,3 +104,22 @@ internal class PanelCrop(private val context: Context) {
             else Manifest.permission.READ_EXTERNAL_STORAGE
     }
 }
+
+/**
+ * Whether [b] holds a whole picture: a JPEG ends with its EOI marker (FF D9, maybe followed by a
+ * few padding bytes), a PNG with its IEND chunk. Anything else is taken as whole.
+ */
+internal fun wholeImage(b: ByteArray): Boolean {
+    if (b.size < 4) return false
+    if (b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()) {
+        var end = b.size - 1
+        while (end > 2 && b.size - end <= 16 && b[end] == 0.toByte()) end--
+        return b[end] == 0xD9.toByte() && b[end - 1] == 0xFF.toByte()
+    }
+    if (b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()) {
+        val iend = "IEND".toByteArray()
+        val at = b.size - 8
+        return at > 0 && (0 until 4).all { b[at + it] == iend[it] }
+    }
+    return true
+}
