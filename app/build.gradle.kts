@@ -7,6 +7,13 @@ val releaseKey = File(System.getProperty("user.home"), ".marcarpro/keystore.prop
     .takeIf { it.exists() }
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
 
+// «A mi Drive»: the app's Google client (Google Cloud, type "TVs and limited input devices"),
+// also outside the project: ~/.marcarpro/google.properties with clientId and clientSecret.
+// Without it the build works and the card says Drive isn't set up.
+val googleClient = File(System.getProperty("user.home"), ".marcarpro/google.properties")
+    .takeIf { it.exists() }
+    ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -25,6 +32,8 @@ android {
         // Where updates come from: the GitHub repository whose latest release (tag v<versionName>)
         // carries the signed APK. Empty = no updates.
         buildConfigField("String", "UPDATE_REPO", "\"maestroseb/marcarpro\"")
+        buildConfigField("String", "DRIVE_CLIENT_ID", "\"${googleClient?.getProperty("clientId").orEmpty()}\"")
+        buildConfigField("String", "DRIVE_CLIENT_SECRET", "\"${googleClient?.getProperty("clientSecret").orEmpty()}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -77,6 +86,8 @@ kotlin {
 dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-ktx:1.11.0")
+    // QR codes for «A mi Drive» (only the encoder survives R8).
+    implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
     implementation("androidx.input:input-motionprediction:1.0.0")
     // Predicts where the pen is going, to draw ink a frame ahead of the digitizer.

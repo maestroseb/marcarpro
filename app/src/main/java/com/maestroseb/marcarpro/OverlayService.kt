@@ -102,6 +102,7 @@ class OverlayService : Service() {
         private const val PARKED = -20000
         private const val SHARE_WAIT_MS = 150L
         private const val PDF_MIME = "application/pdf"
+        private const val DRIVE_DONE_MS = 6000L
         // Android's share menu (its package before and after Android 13's own module).
         private val SHARE_MENUS = setOf(
             "android", "com.android.intentresolver", BuildConfig.APPLICATION_ID,
@@ -173,6 +174,15 @@ class OverlayService : Service() {
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         title = "Marcar Pro pages"
+    }
+    private var driveCard: DriveCardView? = null
+    private var driveShown = false
+    private val driveParams = WLP(
+        WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
+        WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        title = "Marcar Pro drive"
     }
     private var shareCard: ShareCardView? = null
     private var shareShown = false
@@ -373,6 +383,8 @@ class OverlayService : Service() {
         dock(boardList!!, boardsParams)
         dock(pagePill!!, pillParams)
         dock(shareCard!!, shareParams)
+        driveCard = DriveCardView(this, onClose = ::closeDrive)
+        dock(driveCard!!, driveParams)
 
         // 2. Clear-all: press and hold.
         val trash = TrashView(this)
@@ -579,6 +591,7 @@ class OverlayService : Service() {
         TouchRelayService.onPageChanged = null
         TouchRelayService.onAppShown = null
         SaveActivity.onClosed = null
+        driveRun?.cancelled = true
         TouchRelayService.onConnected = null
         handler.removeCallbacksAndMessages(null)
         panel?.onSourceChanged = null
@@ -1637,7 +1650,7 @@ class OverlayService : Service() {
                 SaveActivity.onClosed = { inkHeld = false; bringInkBack() }
                 if (runCatching { startActivity(SaveActivity.intent(this, uri, name, PDF_MIME)) }.isFailure) bringInkBack()
             }
-            ShareKind.DRIVE -> toast(R.string.share_failed)
+            ShareKind.DRIVE -> showDrive(uri, name)
         }
     }
 
@@ -1653,6 +1666,84 @@ class OverlayService : Service() {
         inkAway = true
         inkAwayAt = SystemClock.uptimeMillis()
         handler.postDelayed(inkBack, SHARE_MENU_MAX_MS)
+    }
+
+    /**
+     * «A mi Drive»: the card with the QR code, in the middle of the screen, while a thread asks
+     * Google whether the teacher has allowed it yet and then sends the PDF (see [DriveLink]).
+     */
+    private fun showDrive(uri: android.net.Uri, name: String) {
+        val v = driveCard ?: return
+        if (!DriveLink.configured) {
+            toast(R.string.drive_not_set, long = true)
+            return
+        }
+        driveRun?.cancelled = true
+        v.reset()
+        v.fileName = name
+        v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val screen = wm.screenSize()
+        driveParams.x = (screen.x - v.measuredWidth) / 2
+        driveParams.y = (screen.y - v.measuredHeight) / 2
+        unpark(v, driveParams)
+        driveShown = true
+        panel?.setArea(PanelTouch.AREA_DRIVE, Rect(driveParams.x, driveParams.y, driveParams.x + v.measuredWidth, driveParams.y + v.measuredHeight))
+        val run = DriveRun(uri, name)
+        driveRun = run
+        Thread(run, "marcar-drive").start()
+    }
+
+    private fun closeDrive() {
+        val v = driveCard ?: return
+        // While the PDF is going up the card stays: closing it would not stop the upload.
+        if (v.state == DriveCardView.State.SAVING) return
+        driveRun?.cancelled = true
+        driveRun = null
+        if (!driveShown) return
+        driveShown = false
+        park(v, driveParams)
+        v.reset()
+        panel?.clearArea(PanelTouch.AREA_DRIVE)
+    }
+
+    private var driveRun: DriveRun? = null
+
+    private inner class DriveRun(val uri: android.net.Uri, val name: String) : Runnable {
+        @Volatile var cancelled = false
+
+        private fun show(state: DriveCardView.State) = handler.post { if (!cancelled) driveCard?.state = state }
+
+        override fun run() {
+            var token: String? = null
+            try {
+                val code = DriveLink.start()
+                handler.post { if (!cancelled) driveCard?.show(code) }
+                var wait = code.interval * 1000
+                while (!cancelled && SystemClock.uptimeMillis() < code.expiresAt) {
+                    Thread.sleep(wait)
+                    if (cancelled) return
+                    when (val r = DriveLink.poll(code)) {
+                        is DriveLink.Poll.Allowed -> { token = r.token; break }
+                        DriveLink.Poll.Waiting -> Unit
+                        DriveLink.Poll.Slower -> wait += 5000
+                        DriveLink.Poll.Refused -> return show(DriveCardView.State.REFUSED).let { }
+                        DriveLink.Poll.Expired -> break
+                    }
+                }
+                if (cancelled) return
+                val t = token ?: return show(DriveCardView.State.EXPIRED).let { }
+                show(DriveCardView.State.SAVING)
+                DriveLink.upload(this@OverlayService, t, uri, name)
+                show(DriveCardView.State.DONE)
+                handler.postDelayed({ if (driveRun === this && driveCard?.state == DriveCardView.State.DONE) closeDrive() }, DRIVE_DONE_MS)
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                android.util.Log.w("MarcarPro", "drive: $e")
+                show(DriveCardView.State.FAILED)
+            } finally {
+                token?.let(DriveLink::revoke)
+            }
+        }
     }
 
     private var inkAway = false

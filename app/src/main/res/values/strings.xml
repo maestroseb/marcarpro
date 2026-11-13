@@ -204,4 +204,21 @@
     <string name="share_old_android">Sharing needs Android 10 or later</string>
     <string name="share_quick_name">Board</string>
     <string name="page_short">p. %d</string>
+    <string name="drive_title">Save to your Drive</string>
+    <string name="drive_step_scan">1. Scan the code with your phone</string>
+    <string name="drive_step_allow">2. Sign in with your school account and allow</string>
+    <string name="drive_code_label">If it asks for a code, it is</string>
+    <string name="drive_expires">Expires in %1$d:%2$02d</string>
+    <string name="drive_connecting">Connecting to Google…</string>
+    <string name="drive_saving">Saving to your Drive…</string>
+    <string name="drive_done">Saved to your Drive</string>
+    <string name="drive_done_note">In the folder «Marcar Pro»</string>
+    <string name="drive_refused">Permission not given</string>
+    <string name="drive_expired">The code expired</string>
+    <string name="drive_again_note">Tap «To my Drive» again</string>
+    <string name="drive_failed">Couldn\'t reach Google</string>
+    <string name="drive_failed_note">Check the internet and try again</string>
+    <string name="drive_cancel">Cancel</string>
+    <string name="drive_close">Close</string>
+    <string name="drive_not_set">Drive isn\'t set up in this version yet. Use the USB stick.</string>
 </resources>
