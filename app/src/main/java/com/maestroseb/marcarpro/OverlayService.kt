@@ -99,8 +99,6 @@ class OverlayService : Service() {
         // A new key since 1.5.0: the clear-all button's old spot, top right, is now the page pill's.
         private const val TRASH_POSITION = "clearAll"
         private const val PILL_EDGE_DP = 24f
-        // Docked windows wait here while hidden, far off screen whatever their gravity.
-        private const val PARKED = -20000
         private const val SHARE_WAIT_MS = 150L
         private const val PDF_MIME = "application/pdf"
         private const val DRIVE_DONE_MS = 6000L
@@ -125,7 +123,6 @@ class OverlayService : Service() {
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
         private const val PANEL_CROP_TIMEOUT_MS = 10L * 60 * 1000
         private const val PANEL_CROP_RETRIES = 30
-        private const val PANEL_CROP_FLAT_READS = 10
         private const val PANEL_CROP_RETRY_MS = 150L
         private const val PANEL_CROP_WATCH_MS = 150L
         private const val PASTE_MAX_PX = 2400
@@ -1485,7 +1482,7 @@ class OverlayService : Service() {
         }
         updatePagePill()
         v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        pillParams.flags = pillParams.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
+        unpark(v, pillParams, place = false)
         placePagePill()
     }
 
@@ -1511,30 +1508,31 @@ class OverlayService : Service() {
     // region Docked windows
 
     /**
-     * Adds a window that comes and goes with the whiteboard, parked off screen. They are all added
-     * once, before the floating buttons: a window added later covers the ones before it, and the
-     * floating buttons (orb, clear-all, whiteboard) must stay on top of everything. Parking (rather
+     * Adds a window that comes and goes with the whiteboard, hidden. They are all added once,
+     * before the floating buttons: a window added later covers the ones before it, and the
+     * floating buttons (orb, clear-all, whiteboard) must stay on top of everything. Hiding (rather
      * than removing) also keeps the panel from showing a new window's first frame as a grey square.
+     * Hidden ones stay on screen, invisible: parked far off screen (1.9.0–1.9.3) they made the
+     * panel's own Crop capture the PC as a grey square on some ViewSonic panels.
      */
     private fun dock(v: View, p: WLP) {
-        p.flags = p.flags or WLP.FLAG_LAYOUT_NO_LIMITS
         park(v, p, attached = false)
         wm.addView(v, p)
         docked.add(v)
     }
 
-    /** Off screen and untouchable (no outside touches either). */
+    /** Invisible and untouchable (no outside touches either), where it was. */
     private fun park(v: View, p: WLP, attached: Boolean = true) {
         p.flags = p.flags or WLP.FLAG_NOT_TOUCHABLE
-        p.x = PARKED
-        p.y = PARKED
+        v.visibility = View.INVISIBLE
         if (attached) runCatching { wm.updateViewLayout(v, p) }
     }
 
-    /** Back where [p] now says, touchable. */
-    private fun unpark(v: View, p: WLP) {
+    /** Visible and touchable; [place] = also moved to where [p] now says. */
+    private fun unpark(v: View, p: WLP, place: Boolean = true) {
         p.flags = p.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
-        runCatching { wm.updateViewLayout(v, p) }
+        v.visibility = View.VISIBLE
+        if (place) runCatching { wm.updateViewLayout(v, p) }
     }
 
     // endregion
@@ -1554,7 +1552,7 @@ class OverlayService : Service() {
         v.pages = whiteboards.pages
         v.boardName = boardTitle()
         v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        shareParams.flags = shareParams.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
+        unpark(v, shareParams, place = false)
         placeShareCard()
         pagePill?.shareOpen = true
     }
@@ -1840,7 +1838,6 @@ class OverlayService : Service() {
         panelCropRead = null
         panelCropClosed = false
         panelCropSizes.clear()
-        panelCropFlatReads = 0
         if (!panelCrop.start { endPanelCrop(since) }) {
             finishPanelCrop(emptyList())
             toast(R.string.crop_external, long = true)
@@ -1922,23 +1919,16 @@ class OverlayService : Service() {
 
     private var panelCropClosed = false
     private val panelCropSizes = java.util.concurrent.ConcurrentHashMap<android.net.Uri, Int>()
-    @Volatile private var panelCropFlatReads = 0
 
     /**
-     * The panel's cut-out once it has settled: whole (see [wholeImage]), the same size as at the
-     * previous look, and not one flat colour (some panels write the picture after the file; a
-     * flat one is read again for a while before it is believed). Null = look again. IO thread.
+     * The panel's cut-out once it has settled: whole (see [wholeImage]) and the same size as at
+     * the previous look. Null = look again. IO thread.
      */
     private fun readSettled(uri: android.net.Uri): android.graphics.Bitmap? {
         val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
         if (!wholeImage(bytes)) return null
         if (panelCropSizes.put(uri, bytes.size) != bytes.size) return null
-        val image = decodeBytes(bytes) ?: return null
-        if (isFlat(image) && panelCropFlatReads++ < PANEL_CROP_FLAT_READS) {
-            image.recycle()
-            return null
-        }
-        return image
+        return decodeBytes(bytes)
     }
 
     private val panelCropTimeout = Runnable {

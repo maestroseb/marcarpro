@@ -27,8 +27,8 @@ android {
         applicationId = "com.maestroseb.marcarpro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 36
-        versionName = "1.9.3"
+        versionCode = 37
+        versionName = "1.9.4"
         // Where updates come from: the GitHub repository whose latest release (tag v<versionName>)
         // carries the signed APK. Empty = no updates.
         buildConfigField("String", "UPDATE_REPO", "\"maestroseb/marcarpro\"")
