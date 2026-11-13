@@ -24,6 +24,8 @@ internal object Setup {
         val done: Boolean,
         /** Optional items don't keep the card coming back. */
         val optional: Boolean,
+        /** The button's own label, shown even once done (it can be opened again); null = «Activar». */
+        val button: String? = null,
         val open: () -> Unit,
     )
 }
@@ -115,7 +117,7 @@ internal class SetupView(
             marginStart = dpi(14f)
             marginEnd = dpi(12f)
         })
-        if (!item.done) addView(button(context.getString(R.string.setup_open), filled = false) { item.open() })
+        if (!item.done || item.button != null) addView(button(item.button ?: context.getString(R.string.setup_open), filled = false) { item.open() })
     }
 
     private fun wide() = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)

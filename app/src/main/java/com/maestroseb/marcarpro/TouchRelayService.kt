@@ -57,7 +57,12 @@ class TouchRelayService : AccessibilityService() {
         val pkg = event?.packageName?.toString() ?: return
         if (pkg == packageName) return
         val switched = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-        if (switched) onAppShown?.invoke(pkg)
+        if (switched) {
+            onAppShown?.invoke(pkg)
+            // Bars and overlays may settle on top a moment later: the app in front is looked at again.
+            handler.removeCallbacks(lookAtFront)
+            handler.postDelayed(lookAtFront, FRONT_SETTLE_MS)
+        }
         if (!switched) {
             // In a browser a new address or tab shows up as changed text; videos and animations
             // change other things all the time and are ignored.
@@ -71,6 +76,17 @@ class TouchRelayService : AccessibilityService() {
         checkAt = at
         handler.postAtTime(check, at)
     }
+
+    /**
+     * The app really in front: the top application window, whatever bars, overlays or keyboards
+     * lie over it (ours included). Null if it can't be told.
+     */
+    fun frontApp(): String? = runCatching {
+        windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.root?.packageName?.toString() != packageName }
+            ?.root?.packageName?.toString()
+    }.getOrNull()
+
+    private val lookAtFront = Runnable { frontApp()?.let { onFrontApp?.invoke(it) } }
 
     private fun checkPage() {
         val root = rootInActiveWindow ?: return
@@ -213,5 +229,10 @@ class TouchRelayService : AccessibilityService() {
 
         /** Any app's window came up (its package): to know when Android's share menu has gone. */
         var onAppShown: ((String) -> Unit)? = null
+
+        /** The app really in front (see [frontApp]), a moment after any window came up. */
+        var onFrontApp: ((String) -> Unit)? = null
+
+        private const val FRONT_SETTLE_MS = 500L
     }
 }

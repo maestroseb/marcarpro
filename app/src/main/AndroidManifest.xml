@@ -29,6 +29,8 @@
     <queries>
         <package android:name="com.seewo.mcuservice" />
         <package android:name="com.seewo.cropscreen" />
+        <!-- SMART panels: their annotation, whose settings the setup card opens. -->
+        <package android:name="com.smarttech.smartink" />
     </queries>
 
     <application

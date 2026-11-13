@@ -110,6 +110,11 @@ class OverlayService : Service() {
             "com.android.documentsui", "com.google.android.documentsui",
         )
         private const val SHARE_MENU_SETTLE_MS = 800L
+        /** Panels' own whiteboards: Marcar Pro hides while they are in front (see [stepAsideFor]). */
+        private val OWN_WHITEBOARDS = setOf("com.smarttech.notebookplayer")
+        /** Windows that come and go over any app (they don't mean the whiteboard was left). */
+        private val PASSING_WINDOWS = setOf("com.android.systemui", "com.smart.inputmethod.latin", "android")
+        private const val SMART_INK = "com.smarttech.smartink"
         private const val SHARE_MENU_MAX_MS = 180_000L
         // A PDF page may be at most 14,400 points a side; images stay under 4096 px a side.
         private const val PDF_MAX_POINTS = 14000f
@@ -350,7 +355,12 @@ class OverlayService : Service() {
         TouchRelayService.onPageChanged = ::switchPage
         TouchRelayService.onAppShown = { pkg ->
             if (inkAway && !inkHeld && pkg !in SHARE_MENUS && SystemClock.uptimeMillis() - inkAwayAt > SHARE_MENU_SETTLE_MS) bringInkBack()
+            // A whiteboard app coming up is believed at once; leaving it, only once it is
+            // really gone from the front (bars and overlays come and go over it).
+            if (pkg in OWN_WHITEBOARDS) stepAsideFor(true)
+            else if (pkg !in PASSING_WINDOWS) frontAppChanged(TouchRelayService.instance?.frontApp() ?: pkg)
         }
+        TouchRelayService.onFrontApp = ::frontAppChanged
         io.execute(::forgetOldPages)
         ink.listener = AnnotationView.Listener {
             lastActivity = SystemClock.uptimeMillis()
@@ -592,6 +602,7 @@ class OverlayService : Service() {
         TouchRelayService.onPageChanged = null
         TouchRelayService.onAppShown = null
         SaveActivity.onClosed = null
+        TouchRelayService.onFrontApp = null
         driveRun?.cancelled = true
         TouchRelayService.onConnected = null
         handler.removeCallbacksAndMessages(null)
@@ -1739,6 +1750,30 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Over a panel's own whiteboard (SMART's) Marcar Pro gets out of the way altogether: its ink
+     * and floating buttons hide while that app is in front and come back as they were after.
+     */
+    private var asideForWhiteboard = false
+
+    private fun frontAppChanged(pkg: String) = stepAsideFor(pkg in OWN_WHITEBOARDS)
+
+    private fun stepAsideFor(whiteboardApp: Boolean) {
+        if (whiteboardApp == asideForWhiteboard) return
+        asideForWhiteboard = whiteboardApp
+        if (whiteboardApp) {
+            textEditor?.finish(commit = true)
+            if (whiteboard) toggleWhiteboard()
+            closeRing()
+            closeColors()
+            canvas?.visibility = View.INVISIBLE
+            showControls(false)
+        } else {
+            if (!inkAway) canvas?.visibility = View.VISIBLE
+            showControls(true)
+        }
+    }
+
     private var inkAway = false
     private var inkAwayAt = 0L
     private var inkHeld = false
@@ -1750,7 +1785,7 @@ class OverlayService : Service() {
         inkHeld = false
         SaveActivity.onClosed = null
         handler.removeCallbacks(inkBack)
-        canvas?.visibility = View.VISIBLE
+        if (!asideForWhiteboard) canvas?.visibility = View.VISIBLE
     }
 
     // endregion
@@ -2462,6 +2497,27 @@ class OverlayService : Service() {
                         .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
+            }
+        }
+        if (runCatching { packageManager.getPackageInfo(SMART_INK, 0) }.isSuccess) {
+            // SMART's own annotation pops up over the browser: no app can pause it, but its
+            // settings can be opened. Whether it was turned off can't be read: opened once = done.
+            val smart = getSharedPreferences("marcar_smart", MODE_PRIVATE)
+            list += Setup.Item(
+                getString(R.string.setup_smart_ink),
+                getString(R.string.setup_smart_ink_why),
+                // Not optional: the card comes back (from the icon) until it has been opened once.
+                done = smart.getBoolean("ink_settings_opened", false),
+                optional = false,
+                button = getString(R.string.setup_smart_ink_open),
+            ) {
+                smart.edit().putBoolean("ink_settings_opened", true).apply()
+                closeSetup()
+                val settings = Intent("com.android.settings.MANUFACTURER_APPLICATION_SETTING").setPackage(SMART_INK)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val info = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$SMART_INK"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (runCatching { startActivity(settings) }.isFailure) runCatching { startActivity(info) }
             }
         }
         list += Setup.Item(

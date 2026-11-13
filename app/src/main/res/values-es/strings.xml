@@ -222,4 +222,7 @@
     <string name="drive_cancel">Cancelar</string>
     <string name="drive_close">Cerrar</string>
     <string name="drive_not_set">Drive aún no está preparado en esta versión. Usa el pendrive.</string>
+    <string name="setup_smart_ink">Anotación de SMART</string>
+    <string name="setup_smart_ink_why">Para que no salte encima de Marcar Pro en el navegador.</string>
+    <string name="setup_smart_ink_open">Abrir ajuste</string>
 </resources>
