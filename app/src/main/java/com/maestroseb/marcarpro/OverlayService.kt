@@ -124,7 +124,8 @@ class OverlayService : Service() {
         private const val SETUP_POLL_MS = 1000L
         private const val SETUP_WAIT_MS = 3L * 60 * 1000
         private const val PANEL_CROP_TIMEOUT_MS = 10L * 60 * 1000
-        private const val PANEL_CROP_RETRIES = 20
+        private const val PANEL_CROP_RETRIES = 30
+        private const val PANEL_CROP_FLAT_READS = 10
         private const val PANEL_CROP_RETRY_MS = 150L
         private const val PANEL_CROP_WATCH_MS = 150L
         private const val PASTE_MAX_PX = 2400
@@ -1837,6 +1838,9 @@ class OverlayService : Service() {
         applyCanvasWindow()
         panelCropSince = since
         panelCropRead = null
+        panelCropClosed = false
+        panelCropSizes.clear()
+        panelCropFlatReads = 0
         if (!panelCrop.start { endPanelCrop(since) }) {
             finishPanelCrop(emptyList())
             toast(R.string.crop_external, long = true)
@@ -1874,15 +1878,15 @@ class OverlayService : Service() {
         val since = panelCropSince
         val read = panelCropRead
         if (read == null) {
-            if (!panelCropReading) {
+            if (!panelCropReading && panelCropSaved()) {
                 panelCropReading = true
                 io.execute {
                     val saved = panelCrop.savedSince(since)
-                    // Only whole files: one still being written decodes with its missing part in grey.
-                    val images = saved.mapNotNull { uri -> runCatching { decodeWhole(uri) }.getOrNull()?.let { uri to it } }
+                    // Only settled files (see readSettled): read too soon, a cut-out comes out grey.
+                    val images = saved.mapNotNull { uri -> runCatching { readSettled(uri) }.getOrNull()?.let { uri to it } }
                     handler.post {
                         panelCropReading = false
-                        if (since == panelCropSince && images.isNotEmpty()) panelCropRead = images
+                        if (since == panelCropSince && images.isNotEmpty() && images.size == saved.size) panelCropRead = images
                     }
                 }
             }
@@ -1905,6 +1909,38 @@ class OverlayService : Service() {
         finishPanelCrop(read)
     }
 
+    /**
+     * Whether the panel's Crop has finished saving: it says so with its "Saved" dialog, or it has
+     * closed. Without the accessibility service (or its texts) there's no telling: the file decides.
+     */
+    private fun panelCropSaved(): Boolean {
+        if (panelCropClosed) return true
+        val relay = TouchRelayService.instance ?: return true
+        val title = panelCrop.label(PanelCrop.SAVED_TITLE) ?: return true
+        return relay.shows(PanelCrop.PACKAGE, title)
+    }
+
+    private var panelCropClosed = false
+    private val panelCropSizes = java.util.concurrent.ConcurrentHashMap<android.net.Uri, Int>()
+    @Volatile private var panelCropFlatReads = 0
+
+    /**
+     * The panel's cut-out once it has settled: whole (see [wholeImage]), the same size as at the
+     * previous look, and not one flat colour (some panels write the picture after the file; a
+     * flat one is read again for a while before it is believed). Null = look again. IO thread.
+     */
+    private fun readSettled(uri: android.net.Uri): android.graphics.Bitmap? {
+        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        if (!wholeImage(bytes)) return null
+        if (panelCropSizes.put(uri, bytes.size) != bytes.size) return null
+        val image = decodeBytes(bytes) ?: return null
+        if (isFlat(image) && panelCropFlatReads++ < PANEL_CROP_FLAT_READS) {
+            image.recycle()
+            return null
+        }
+        return image
+    }
+
     private val panelCropTimeout = Runnable {
         panelCrop.stop()
         finishPanelCrop(emptyList())
@@ -1913,6 +1949,7 @@ class OverlayService : Service() {
     /** The panel's Crop closed by itself (the teacher pressed Exit): what it saved goes to the whiteboard. */
     private fun endPanelCrop(since: Long, attempt: Int = 0) {
         if (canvas == null || !panelCropping) return
+        panelCropClosed = true
         panelCropRead?.let {
             finishPanelCrop(it)
             return
@@ -2007,10 +2044,11 @@ class OverlayService : Service() {
      * some panels, grey on others, maybe with our own ink on top. Blank = almost every sample of
      * a grid is the same colour.
      */
-    private fun isBlank(shot: android.graphics.Bitmap): Boolean {
+    private fun isBlank(shot: android.graphics.Bitmap): Boolean = isFlat(shot, canvas?.takeIf { it.visibility == View.VISIBLE })
+
+    private fun isFlat(shot: android.graphics.Bitmap, ink: AnnotationView? = null): Boolean {
         val n = BLANK_GRID
         // Our own ink is in the capture: the points under it don't count (however much is written).
-        val ink = canvas?.takeIf { it.visibility == View.VISIBLE }
         val clear = dp(BLANK_INK_DP)
         val all = (0 until n * n).map { k -> shot.width * (k % n + 1) / (n + 1) to shot.height * (k / n + 1) / (n + 1) }
         val free = all.filter { (x, y) -> ink?.inkAt(x.toFloat(), y.toFloat(), clear) != true }
@@ -2134,13 +2172,8 @@ class OverlayService : Service() {
         }
     }
 
-    /**
-     * The panel's cut-out, only once its file is whole (a JPEG ends with its EOI marker, a PNG
-     * with IEND): read too soon, Android fills the missing part in grey. Null = not yet.
-     */
-    private fun decodeWhole(uri: android.net.Uri): android.graphics.Bitmap? {
-        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        if (!wholeImage(bytes)) return null
+    /** [bytes] as a picture, scaled down by halves until its longer side is at most [PASTE_MAX_PX]. */
+    private fun decodeBytes(bytes: ByteArray): android.graphics.Bitmap? {
         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
