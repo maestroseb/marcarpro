@@ -111,7 +111,12 @@ function pedir_(url, metodo, cuerpo, cabeceras) {
     o.payload = JSON.stringify(cuerpo);
   }
   var r = UrlFetchApp.fetch(url, o);
-  if (r.getResponseCode() >= 300) throw new Error('Tu Drive no ha respondido (' + r.getResponseCode() + '). Inténtalo de nuevo.');
+  if (r.getResponseCode() >= 300) {
+    var motivo = '';
+    try { motivo = JSON.parse(r.getContentText()).error.message; } catch (e) {}
+    console.warn('Drive ' + r.getResponseCode() + ': ' + r.getContentText());
+    throw new Error('Tu Drive no ha respondido (' + r.getResponseCode() + (motivo ? ': ' + motivo : '') + '). Inténtalo de nuevo.');
+  }
   return r;
 }
 
