@@ -220,6 +220,8 @@
     <string name="drive_close">Close</string>
     <string name="drive_not_set">Drive isn\'t set up in this version yet. Use the USB stick.</string>
     <string name="setup_smart_ink">SMART annotation</string>
-    <string name="setup_smart_ink_why">So it doesn\'t pop up over Marcar Pro in the browser.</string>
-    <string name="setup_smart_ink_open">Open setting</string>
+    <string name="setup_smart_ink_why">So it doesn\'t pop up over Marcar Pro: turn off «Annotation layers».</string>
+    <string name="setup_smart_ink_path">Settings › SMART › Annotation: turn off «Annotation layers», the first switch</string>
+    <string name="smart_ink_go">Take me there</string>
+    <string name="smart_ink_there">Turn off «Annotation layers», the first switch. To bring it back, turn it on again.</string>
 </resources>

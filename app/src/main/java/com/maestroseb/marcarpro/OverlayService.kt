@@ -1756,6 +1756,22 @@ class OverlayService : Service() {
      */
     private var asideForWhiteboard = false
 
+    /**
+     * Takes the teacher to Settings › SMART › Annotation (see [SmartInk]) and says which switch
+     * to turn off; without the accessibility service, or if the way isn't found, Settings open
+     * and the message gives the whole path.
+     */
+    private fun openSmartInk() {
+        if (!paused) togglePause()
+        val relay = TouchRelayService.instance
+        val byHand = {
+            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            toast(R.string.setup_smart_ink_path, long = true)
+        }
+        if (relay == null) return byHand()
+        SmartInk(this, relay).open { there -> if (there) toast(R.string.smart_ink_there, long = true) else toast(R.string.setup_smart_ink_path, long = true) }
+    }
+
     private fun frontAppChanged(pkg: String) = stepAsideFor(pkg in OWN_WHITEBOARDS)
 
     private fun stepAsideFor(whiteboardApp: Boolean) {
@@ -2500,8 +2516,9 @@ class OverlayService : Service() {
             }
         }
         if (runCatching { packageManager.getPackageInfo(SMART_INK, 0) }.isSuccess) {
-            // SMART's own annotation pops up over the browser: no app can pause it, but its
-            // settings can be opened. Whether it was turned off can't be read: opened once = done.
+            // SMART's own annotation pops up over the apps: no app can pause it, its settings
+            // (Settings › SMART › Annotation) can't be opened by another app and can't be read
+            // by accessibility, so the teacher is taken there. Opened once = done.
             val smart = getSharedPreferences("marcar_smart", MODE_PRIVATE)
             list += Setup.Item(
                 getString(R.string.setup_smart_ink),
@@ -2509,15 +2526,11 @@ class OverlayService : Service() {
                 // Not optional: the card comes back (from the icon) until it has been opened once.
                 done = smart.getBoolean("ink_settings_opened", false),
                 optional = false,
-                button = getString(R.string.setup_smart_ink_open),
+                button = getString(R.string.smart_ink_go),
             ) {
-                smart.edit().putBoolean("ink_settings_opened", true).apply()
                 closeSetup()
-                val settings = Intent("com.android.settings.MANUFACTURER_APPLICATION_SETTING").setPackage(SMART_INK)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                val info = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$SMART_INK"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (runCatching { startActivity(settings) }.isFailure) runCatching { startActivity(info) }
+                smart.edit().putBoolean("ink_settings_opened", true).apply()
+                openSmartInk()
             }
         }
         list += Setup.Item(

@@ -126,6 +126,16 @@ class TouchRelayService : AccessibilityService() {
         (runCatching { windows }.getOrNull().orEmpty().mapNotNull { it.root } + listOfNotNull(rootInActiveWindow))
             .filter { it.packageName?.toString() == pkg }
 
+    /** The visible nodes of [pkg]'s windows whose text is exactly [text]. */
+    fun exact(pkg: String, text: String): List<AccessibilityNodeInfo> =
+        rootsOf(pkg).flatMap { root -> root.findAccessibilityNodeInfosByText(text) }
+            .filter { it.isVisibleToUser && it.text?.toString()?.trim() == text }
+
+    /** Whether a window titled one of [titles] is on screen (even one whose views can't be read). */
+    fun showsWindow(titles: Collection<String>): Boolean = runCatching {
+        windows.any { w -> w.title?.toString() in titles }
+    }.getOrDefault(false)
+
     /** Whether [pkg] shows [text] anywhere on screen (a dialog's title, say). */
     fun shows(pkg: String, text: String): Boolean =
         rootsOf(pkg).any { root -> root.findAccessibilityNodeInfosByText(text).any { it.isVisibleToUser } }
