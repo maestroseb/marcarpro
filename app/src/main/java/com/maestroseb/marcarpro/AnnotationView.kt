@@ -956,6 +956,9 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         // Zoomed in (young pupils, from their seats), the lines grow thicker and darker with the
         // paper, up to PAPER_GROW_MAX times; at 1× and below they stay as they are.
         val grow = (1f + (k - 1f) * PAPER_GROW).coerceIn(1f, PAPER_GROW_MAX)
+        // The Montessori band: barely there at 1×, its full tint only well zoomed in.
+        val t = (grow - 1f) / (PAPER_GROW_MAX - 1f)
+        bandPaint.alpha = (BAND_ALPHA_MIN + (BAND_ALPHA_MAX - BAND_ALPHA_MIN) * t).toInt()
         if (grow <= 1.01f) return drawPattern(canvas, cam, w, h, step)
         val saved = PAPER_PAINTS.map { it.color to it.strokeWidth }
         for (p in PAPER_PAINTS) {
@@ -3006,6 +3009,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         private const val PAPER_GROW = 0.5f
         private const val PAPER_GROW_MAX = 3f
         private const val PAPER_DARKEN = 0.6f
+        private const val BAND_ALPHA_MIN = 0x0C
+        private const val BAND_ALPHA_MAX = 0x30
         // A staff: five lines 0.45 squares apart (16 dp: room for handwritten notes), every 3.5 squares.
         const val STAFF_PERIOD = 3.5f
         val STAFF_LINES = floatArrayOf(0f, 0.45f, 0.9f, 1.35f, 1.8f)
