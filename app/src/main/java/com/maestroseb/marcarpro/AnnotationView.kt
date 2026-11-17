@@ -216,6 +216,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         color = 0x4D1F2329
         strokeWidth = dp(2f)
     }
+    private val bandPaint = Paint().apply { color = MONTESSORI_BAND }
     private var gridLines = FloatArray(0)
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x2E1F2329
@@ -952,6 +953,26 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         val k = cam.mapRadius(1f)
         val step = dp(GRID_DP) * k
         if (step < minStep) return // zoomed far out: the pattern would just be noise
+        // Zoomed in (young pupils, from their seats), the lines grow thicker and darker with the
+        // paper, up to PAPER_GROW_MAX times; at 1× and below they stay as they are.
+        val grow = (1f + (k - 1f) * PAPER_GROW).coerceIn(1f, PAPER_GROW_MAX)
+        if (grow <= 1.01f) return drawPattern(canvas, cam, w, h, step)
+        val saved = PAPER_PAINTS.map { it.color to it.strokeWidth }
+        for (p in PAPER_PAINTS) {
+            p.strokeWidth *= grow
+            p.alpha = (p.alpha * (1f + (grow - 1f) * PAPER_DARKEN)).toInt().coerceAtMost(255)
+        }
+        try {
+            drawPattern(canvas, cam, w, h, step)
+        } finally {
+            PAPER_PAINTS.forEachIndexed { i, p -> p.color = saved[i].first; p.strokeWidth = saved[i].second }
+        }
+    }
+
+    private val PAPER_PAINTS by lazy { arrayOf(linePaint, staffPaint, bodyPaint, gridPaint) }
+
+    /** The paper's pattern, [step] pixels apart on screen (see [drawPaper]). */
+    private fun drawPattern(canvas: Canvas, cam: Matrix, w: Float, h: Float, step: Float) {
         cam.mapPoints(origin, ZERO)
         val x0 = origin[0] - kotlin.math.floor(origin[0] / step) * step
         val y0 = origin[1] - kotlin.math.floor(origin[1] / step) * step
@@ -1001,6 +1022,11 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             gridLines[n++] = x; gridLines[n++] = 0f; gridLines[n++] = x; gridLines[n++] = h
         }
         if (paperStyle == Paper.MONTESSORI) {
+            // The letters' body, between the two middle lines, gets a soft band: where to write.
+            for (r in 0 until ruled) {
+                val y = ry0 + r * period
+                canvas.drawRect(0f, y + MONTESSORI_LINES[2] * step, w, y + MONTESSORI_LINES[3] * step, bandPaint)
+            }
             canvas.drawLines(gridLines, 0, strong, linePaint)
             canvas.drawLines(gridLines, strong, n - strong, bodyPaint)
             return
@@ -2976,6 +3002,10 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         val MONTESSORI_LINES = floatArrayOf(0f, 0.07f, 0.75f, 1.25f)
         /** From this line on (the two middle ones) a Montessori row is drawn darker, to stand out. */
         const val MONTESSORI_STRONG = 2
+        /** How fast the paper's lines grow with the zoom, the most they grow, and how much darker. */
+        private const val PAPER_GROW = 0.5f
+        private const val PAPER_GROW_MAX = 3f
+        private const val PAPER_DARKEN = 0.6f
         // A staff: five lines 0.45 squares apart (16 dp: room for handwritten notes), every 3.5 squares.
         const val STAFF_PERIOD = 3.5f
         val STAFF_LINES = floatArrayOf(0f, 0.45f, 0.9f, 1.35f, 1.8f)

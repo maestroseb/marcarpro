@@ -54,8 +54,9 @@ internal fun drawPaperSheet(canvas: Canvas, r: RectF, p: Paper, color: PaperColo
         Paper.DOUBLE -> for (y in floatArrayOf(0.22f, 0.4f, 0.64f, 0.82f)) {
             canvas.drawLine(r.left + inset, r.top + y * h, r.right - inset, r.top + y * h, mark)
         }
-        Paper.MONTESSORI -> for (y in MONTESSORI_THUMB) {
-            canvas.drawLine(r.left + inset, r.top + y * h, r.right - inset, r.top + y * h, mark)
+        Paper.MONTESSORI -> {
+            canvas.drawRect(r.left + inset, r.top + MONTESSORI_THUMB[2] * h, r.right - inset, r.top + MONTESSORI_THUMB[3] * h, montessoriBandPaint)
+            for (y in MONTESSORI_THUMB) canvas.drawLine(r.left + inset, r.top + y * h, r.right - inset, r.top + y * h, mark)
         }
         Paper.STAFF -> for (i in 0 until 5) {
             val y = r.top + h * (0.3f + i * 0.1f) // five lines close together: a staff
@@ -63,6 +64,10 @@ internal fun drawPaperSheet(canvas: Canvas, r: RectF, p: Paper, color: PaperColo
         }
     }
 }
+
+/** The soft teal band of a Montessori row's body (where the letters go). */
+internal val MONTESSORI_BAND = ColorUtils.setAlphaComponent(OrbStyle.TEAL, 0x24)
+internal val montessoriBandPaint = android.graphics.Paint().apply { color = MONTESSORI_BAND }
 
 /** One Montessori row in a small sample: the pair, the body's two lines, the next pair. */
 internal val MONTESSORI_THUMB = floatArrayOf(0.2f, 0.26f, 0.44f, 0.58f, 0.76f, 0.82f)
