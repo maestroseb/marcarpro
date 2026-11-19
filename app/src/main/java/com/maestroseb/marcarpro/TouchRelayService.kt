@@ -1,6 +1,7 @@
 package com.maestroseb.marcarpro
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
 import android.graphics.Path
@@ -25,7 +26,8 @@ import android.view.accessibility.AccessibilityNodeInfo
  * It takes the screenshot for "cut out to the whiteboard" ([screenshot]), only when asked.
  *
  * It also tells the layer which page is on screen: in a browser, the address in its address
- * bar (so each tab keeps its own ink); anywhere else, the general board. Only that one field
+ * bar (so each tab keeps its own ink); in any other app, that app's board; on the home screen,
+ * the general board. Only that one field
  * is read, a moment after the screen changes, and the address never leaves the device.
  */
 class TouchRelayService : AccessibilityService() {
@@ -81,6 +83,13 @@ class TouchRelayService : AccessibilityService() {
      * The app really in front: the top application window, whatever bars, overlays or keyboards
      * lie over it (ours included). Null if it can't be told.
      */
+    /** Home screens (a panel may have several): they show the general board. */
+    private val homes: Set<String> by lazy {
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        runCatching { packageManager.queryIntentActivities(home, 0).map { it.activityInfo.packageName }.toSet() }
+            .getOrDefault(emptySet())
+    }
+
     fun frontApp(): String? = runCatching {
         windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.root?.packageName?.toString() != packageName }
             ?.root?.packageName?.toString()
@@ -99,8 +108,13 @@ class TouchRelayService : AccessibilityService() {
             if (bar.isFocused) return
             // A new tab shows the bar's hint ("Search or type URL"): a blank page, the general board.
             if (bar.isShowingHintText) PageKeys.GENERAL else PageKeys.fromAddressBar(bar.text) ?: return
-        } else {
+        } else if (pkg in PASSING) {
+            // Dialogs and pickers over an app: still that app's page.
+            return
+        } else if (pkg in homes) {
             PageKeys.GENERAL
+        } else {
+            PageKeys.forApp(pkg)
         }
         if (next != page) {
             page = next
@@ -221,6 +235,18 @@ class TouchRelayService : AccessibilityService() {
         private const val MAX_DRAG_MS = 2000L
         private const val SWITCH_SETTLE_MS = 150L
         private const val LOAD_SETTLE_MS = 400L
+        /** Windows that open over any app (permissions, share and file pickers): they keep its page. */
+        private val PASSING = setOf(
+            "android",
+            "com.android.intentresolver",
+            "com.android.documentsui",
+            "com.google.android.documentsui",
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller",
+            "com.smart.inputmethod.latin",
+        )
         private val TRANSIENT = setOf(
             "com.android.systemui",
             "com.google.android.inputmethod.latin",

@@ -4,7 +4,8 @@ import java.security.MessageDigest
 
 /**
  * Which "page" the ink belongs to. Every web page open in a supported browser gets its own
- * board (like the pages of Smart Ink); everything else shares the general board.
+ * board (like the pages of Smart Ink), and so does every other app; the home screen shows the
+ * general board.
  */
 internal object PageKeys {
     const val GENERAL = ""
@@ -16,6 +17,14 @@ internal object PageKeys {
     const val WHITEBOARD = "whiteboard:"
 
     fun isWhiteboard(key: String) = key.startsWith(WHITEBOARD)
+
+    /** An app's own board: "app:<package>". */
+    private const val APP = "app:"
+
+    fun forApp(pkg: String) = APP + pkg
+
+    /** The app whose board [key] is, or null for a web page, a whiteboard or the general board. */
+    fun appOf(key: String): String? = if (key.startsWith(APP)) key.removePrefix(APP) else null
 
     /** Chromium browsers: they all name their address bar `<package>:id/url_bar`. */
     val BROWSERS = setOf(

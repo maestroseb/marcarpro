@@ -83,6 +83,8 @@
     <string name="custom_save">Save colour</string>
     <string name="palette_size">Size</string>
     <string name="clear_hold">Press and hold to clear the board</string>
+    <string name="app_ink">Ink of %s</string>
+    <string name="app_ink_none">%s · clean sheet</string>
     <string name="closed_saved">Marcar Pro closed · your ink will be here next time</string>
     <string name="board_cleared">Board cleared</string>
     <string name="undo">Undo</string>

@@ -31,6 +31,15 @@
         <package android:name="com.seewo.cropscreen" />
         <!-- SMART panels: their annotation, whose settings the setup card opens. -->
         <package android:name="com.smarttech.smartink" />
+        <!-- Home screens show the general board; other apps' names are shown when their ink comes back. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application

@@ -82,6 +82,8 @@
     <string name="custom_save">Guardar color</string>
     <string name="palette_size">Tamaño</string>
     <string name="clear_hold">Mantén pulsado para borrar la pizarra</string>
+    <string name="app_ink">Tinta de %s</string>
+    <string name="app_ink_none">%s · hoja limpia</string>
     <string name="closed_saved">Marcar Pro cerrado · tu tinta seguirá aquí la próxima vez</string>
     <string name="board_cleared">Pizarra borrada</string>
     <string name="undo">Deshacer</string>

@@ -60,4 +60,14 @@ class PageKeysTest {
         val c = java.util.Calendar.getInstance().apply { set(2026, java.util.Calendar.OCTOBER, 29, 10, 5) }
         assertEquals("Jue 29 oct · 10:05", Boards.nameFor(c.timeInMillis, java.util.Locale("es", "ES")))
     }
+
+    @Test
+    fun appsHaveTheirOwnBoards() {
+        val key = PageKeys.forApp("com.google.android.apps.docs")
+        assertEquals("com.google.android.apps.docs", PageKeys.appOf(key))
+        assertEquals(null, PageKeys.appOf(PageKeys.GENERAL))
+        assertEquals(null, PageKeys.appOf("web:example.org"))
+        assertTrue(PageKeys.fileName(key).startsWith("page_"))
+        assertTrue("docs" !in PageKeys.fileName(key))
+    }
 }

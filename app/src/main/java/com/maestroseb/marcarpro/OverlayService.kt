@@ -70,6 +70,7 @@ class OverlayService : Service() {
         private const val SAVE_DELAY_MS = 1500L
         private const val SAVE_ON_EXIT_MS = 2000L
         private const val MAX_BOARDS = 24
+        private const val ANNOUNCE_RETRY_MS = 100L
         private const val PAGE_RETRY_MS = 300L
         private const val PAGE_FILE_DAYS = 30L
         private const val UPDATE_FIRST_CHECK_MS = 60_000L
@@ -814,8 +815,34 @@ class OverlayService : Service() {
         handler.removeCallbacks(saveInk)
         saveNow()
         hidePalette()
+        val leftInk = !ink.isEmpty
         pageKey = key
         ink.showBoard(loadBoard(ink, key), direction)
+        if (!now) announceApp(key, leftInk)
+    }
+
+    private var announceLeftInk = false
+    private val announce = Runnable { announceApp(pageKey, announceLeftInk) }
+
+    /**
+     * Says whose ink this is when another app comes to the front: "Ink of Chrome", or, when the
+     * app left behind had ink and this one has none, "Drive · clean sheet". Nothing between two
+     * empty boards, nor for browser tabs (they have always had their own ink).
+     */
+    private fun announceApp(key: String, leftInk: Boolean) {
+        handler.removeCallbacks(announce)
+        val pkg = PageKeys.appOf(key) ?: return
+        if (key in loading) {
+            // Its saved ink is still being read: wait to know whether it has any.
+            announceLeftInk = leftInk
+            handler.postDelayed(announce, ANNOUNCE_RETRY_MS)
+            return
+        }
+        val has = canvas?.isEmpty == false
+        if (!has && !leftInk) return
+        val name = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }
+            .getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        toast(getString(if (has) R.string.app_ink else R.string.app_ink_none, name))
     }
 
     /** Ink of pages not visited for a month goes away, so the board doesn't fill up. */
