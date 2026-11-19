@@ -362,6 +362,7 @@ class OverlayService : Service() {
             else if (pkg !in PASSING_WINDOWS) frontAppChanged(TouchRelayService.instance?.frontApp() ?: pkg)
         }
         TouchRelayService.onFrontApp = ::frontAppChanged
+        TouchRelayService.onScrolled = { key, dx, dy -> boards[key]?.let { canvas?.scrollBoard(it, dx.toFloat(), dy.toFloat()) } }
         io.execute(::forgetOldPages)
         ink.listener = AnnotationView.Listener {
             lastActivity = SystemClock.uptimeMillis()
@@ -604,6 +605,7 @@ class OverlayService : Service() {
         TouchRelayService.onAppShown = null
         SaveActivity.onClosed = null
         TouchRelayService.onFrontApp = null
+        TouchRelayService.onScrolled = null
         driveRun?.cancelled = true
         TouchRelayService.onConnected = null
         handler.removeCallbacksAndMessages(null)

@@ -596,6 +596,22 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         return s
     }
 
+    /**
+     * The page under [b] (a browser tab) is scrolled: its ink is drawn ([dx], [dy]) screen pixels
+     * from where it was written at the page's top. Ink being written isn't moved under the pen:
+     * the next scroll puts it right.
+     */
+    internal fun scrollBoard(b: Board, dx: Float, dy: Float) {
+        if (b.paper) return
+        b.camera.getValues(cameraValues)
+        if (cameraValues[Matrix.MTRANS_X] == dx && cameraValues[Matrix.MTRANS_Y] == dy) return
+        if (b === board && !isIdle) return
+        b.camera.setTranslate(dx, dy)
+        if (b === board) redrawLayer()
+    }
+
+    private val cameraValues = FloatArray(9)
+
     /** True while nothing is being written, erased, moved or flying: safe to swap boards. */
     val isIdle get() = gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && !flying
 

@@ -45,6 +45,7 @@ class TouchRelayService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        eventsAtOnce(frontApp() in PageKeys.BROWSERS)
         checkPage()
         onConnected?.invoke()
     }
@@ -58,8 +59,13 @@ class TouchRelayService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
         if (pkg == packageName) return
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            if (pkg in PageKeys.BROWSERS) scrolled(event)
+            return
+        }
         val switched = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         if (switched) {
+            if (pkg !in TRANSIENT) eventsAtOnce(pkg in PageKeys.BROWSERS)
             onAppShown?.invoke(pkg)
             // Bars and overlays may settle on top a moment later: the app in front is looked at again.
             handler.removeCallbacks(lookAtFront)
@@ -83,6 +89,40 @@ class TouchRelayService : AccessibilityService() {
      * The app really in front: the top application window, whatever bars, overlays or keyboards
      * lie over it (ours included). Null if it can't be told.
      */
+    private val scroller = Rect()
+
+    /**
+     * A browser page scrolled. Chromium reports the page's own scroll position (screen pixels), a
+     * few times a second while it moves (see [eventsAtOnce]); no deltas. Lists, menus and
+     * boxes scrolling inside the page are smaller than half the screen and ignored.
+     */
+    private fun scrolled(event: AccessibilityEvent) {
+        if (event.maxScrollY <= 0 || event.scrollY < 0) return
+        val node = event.source ?: return
+        node.getBoundsInScreen(scroller)
+        val screen = resources.displayMetrics
+        if (scroller.width().toLong() * scroller.height() * 2 < screen.widthPixels.toLong() * screen.heightPixels) return
+        val x = if (event.maxScrollX > 0 && event.scrollX > 0) event.scrollX else 0
+        // The page area itself is left out: it bounces while the page overscrolls, and on large
+        // screens the browser's toolbar never hides.
+        onScrolled?.invoke(page, -x, -event.scrollY)
+    }
+
+    private var atOnce = false
+
+    /**
+     * Events normally come at most every 150 ms per kind, the last one standing for the rest. In a
+     * browser that would lose page scrolls (its toolbar's scroll comes right after the page's), so
+     * while one is in front they come as they happen: only while the page moves, a few a second.
+     */
+    private fun eventsAtOnce(on: Boolean) {
+        if (on == atOnce) return
+        atOnce = on
+        val info = serviceInfo ?: return
+        info.notificationTimeout = if (on) 0 else EVENT_TIMEOUT_MS
+        serviceInfo = info
+    }
+
     /** Home screens (a panel may have several): they show the general board. */
     private val homes: Set<String> by lazy {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
@@ -263,6 +303,9 @@ class TouchRelayService : AccessibilityService() {
         /** Called on the main thread when the page on screen changes. */
         var onPageChanged: ((String) -> Unit)? = null
 
+        /** A browser page scrolled (main thread): (page key, page offset x, y in screen pixels). */
+        var onScrolled: ((String, Int, Int) -> Unit)? = null
+
         /** Any app's window came up (its package): to know when Android's share menu has gone. */
         var onAppShown: ((String) -> Unit)? = null
 
@@ -270,5 +313,7 @@ class TouchRelayService : AccessibilityService() {
         var onFrontApp: ((String) -> Unit)? = null
 
         private const val FRONT_SETTLE_MS = 500L
+        /** As in touch_relay.xml. */
+        private const val EVENT_TIMEOUT_MS = 150L
     }
 }
