@@ -65,7 +65,9 @@ class TouchRelayService : AccessibilityService() {
         }
         val switched = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         if (switched) {
-            if (pkg !in TRANSIENT) eventsAtOnce(pkg in PageKeys.BROWSERS)
+            // On at once for a browser; off only once the app really in front isn't one (other
+            // apps' windows, like SMART's annotation, come up over the browser).
+            if (pkg in PageKeys.BROWSERS) eventsAtOnce(true)
             onAppShown?.invoke(pkg)
             // Bars and overlays may settle on top a moment later: the app in front is looked at again.
             handler.removeCallbacks(lookAtFront)
@@ -135,7 +137,11 @@ class TouchRelayService : AccessibilityService() {
             ?.root?.packageName?.toString()
     }.getOrNull()
 
-    private val lookAtFront = Runnable { frontApp()?.let { onFrontApp?.invoke(it) } }
+    private val lookAtFront = Runnable {
+        val front = frontApp()
+        eventsAtOnce(front in PageKeys.BROWSERS)
+        front?.let { onFrontApp?.invoke(it) }
+    }
 
     private fun checkPage() {
         val root = rootInActiveWindow ?: return

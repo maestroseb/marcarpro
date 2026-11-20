@@ -598,19 +598,75 @@ class AnnotationView(context: Context) : ViewGroup(context) {
 
     /**
      * The page under [b] (a browser tab) is scrolled: its ink is drawn ([dx], [dy]) screen pixels
-     * from where it was written at the page's top. Ink being written isn't moved under the pen:
-     * the next scroll puts it right.
+     * from where it was written at the page's top. The browser says where the page is only a few
+     * times a second, so on screen the ink glides there at an even speed over about the time
+     * since the last report, moving the layer as it was drawn (nothing is drawn again until it
+     * arrives). Ink being written isn't moved under the pen: the next scroll puts it right.
      */
     internal fun scrollBoard(b: Board, dx: Float, dy: Float) {
         if (b.paper) return
-        b.camera.getValues(cameraValues)
-        if (cameraValues[Matrix.MTRANS_X] == dx && cameraValues[Matrix.MTRANS_Y] == dy) return
-        if (b === board && !isIdle) return
-        b.camera.setTranslate(dx, dy)
-        if (b === board) redrawLayer()
+        if (b !== board) {
+            b.camera.setTranslate(dx, dy)
+            return
+        }
+        if (!isIdle) return
+        camera.getValues(cameraValues)
+        val x = cameraValues[Matrix.MTRANS_X]
+        val y = cameraValues[Matrix.MTRANS_Y]
+        if (gliding && glideToX == dx && glideToY == dy) return
+        if (!gliding && x == dx && y == dy) return
+        val now = SystemClock.uptimeMillis()
+        if (!gliding) {
+            dry() // the layer is what glides: all the ink must be in it
+            repaintDirty()
+            glideBaseX = x
+            glideBaseY = y
+        }
+        glideMs = (now - lastScrollAt).coerceIn(GLIDE_MIN_MS, GLIDE_MAX_MS)
+        lastScrollAt = now
+        glideFromX = x
+        glideFromY = y
+        glideToX = dx
+        glideToY = dy
+        glideStart = now
+        gliding = true
+        removeCallbacks(glide)
+        postOnAnimation(glide)
     }
 
     private val cameraValues = FloatArray(9)
+    private var gliding = false
+    private var glideStart = 0L
+    private var glideMs = GLIDE_MAX_MS
+    private var lastScrollAt = 0L
+    private var glideFromX = 0f
+    private var glideFromY = 0f
+    private var glideToX = 0f
+    private var glideToY = 0f
+    // The camera the layer was drawn with: while gliding it is drawn moved by the difference.
+    private var glideBaseX = 0f
+    private var glideBaseY = 0f
+
+    private val glide = object : Runnable {
+        override fun run() {
+            if (!gliding) return
+            val t = ((SystemClock.uptimeMillis() - glideStart).toFloat() / glideMs).coerceAtMost(1f)
+            camera.setTranslate(glideFromX + (glideToX - glideFromX) * t, glideFromY + (glideToY - glideFromY) * t)
+            if (t >= 1f) {
+                endGlide()
+            } else {
+                invalidate()
+                postOnAnimation(this)
+            }
+        }
+    }
+
+    /** Puts the gliding ink where it is going and draws the layer there. */
+    private fun endGlide() {
+        if (!gliding) return
+        camera.setTranslate(glideToX, glideToY)
+        redrawLayer()
+    }
 
     /** True while nothing is being written, erased, moved or flying: safe to swap boards. */
     val isIdle get() = gesture == Gesture.NONE && inking.isEmpty() && erasing.isEmpty() && !flying
@@ -678,6 +734,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     }
 
     private fun redrawLayer() {
+        gliding = false
+        removeCallbacks(glide)
         dry(keep = false) // the wet ink is drawn here with all the rest
         dirty.setEmpty()
         layer.redraw(strokes, offLayer, camera)
@@ -848,8 +906,15 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         // Part of the paper: ink written over it covers it.
         drawVersionMark(canvas)
         // While the whiteboard moves, its ink is drawn directly (the layer is re-rasterised after).
-        if (!panning) repaintDirty()
-        if (!inkHidden && !panning) drawLayer(canvas)
+        if (!panning && !gliding) repaintDirty()
+        if (!inkHidden && !panning) {
+            if (gliding) {
+                camera.getValues(cameraValues)
+                canvas.withTranslation(cameraValues[Matrix.MTRANS_X] - glideBaseX, cameraValues[Matrix.MTRANS_Y] - glideBaseY) { drawLayer(this) }
+            } else {
+                drawLayer(canvas)
+            }
+        }
         if (!inkHidden) drawSweep(canvas)
         canvas.withMatrix(camera) {
             if (!inkHidden) {
@@ -1651,6 +1716,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
 
     @android.annotation.SuppressLint("ClickableViewAccessibility") // performClick() is called from handle()
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        // Ink still gliding after a page scroll lands at once: a touch maps through the camera.
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) endGlide()
         if (!annotating) return false
         // A touch that starts on the version mark is a tap on it, unless it moves off as a stroke.
         val held = markDown
@@ -2915,6 +2982,9 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     // endregion
 
     private companion object {
+        // A page scroll glides over the time since the previous report, within these bounds.
+        private const val GLIDE_MIN_MS = 60L
+        private const val GLIDE_MAX_MS = 250L
         private const val THUMB_FILL = 0.86f
         private const val THUMB_LINE_PX = 1.4f
         const val NO_POINTER = -1
