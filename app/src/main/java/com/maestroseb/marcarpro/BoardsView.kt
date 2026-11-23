@@ -456,122 +456,15 @@ internal class PagePillView(
 
     private val cell get() = dp(CELL_DP)
     private val middle get() = dp(MIDDLE_DP)
-    /** Where the share button starts: after the clock and the gap. */
-    private val shareLeft get() = margin + clockWidth + dp(SHARE_GAP_DP)
     /** Where the pill starts: after the share button and the gap. */
-    private val pillLeft get() = shareLeft + dp(HEIGHT_DP) + dp(SHARE_GAP_DP)
-
-    // region Clock
-    // The time, left of the share button (the whiteboard has no clock of its own and the panels
-    // hide the status bar). A tap shows the day for a few seconds. It redraws once a minute,
-    // only while the whiteboard is open: this little window, never the ink.
-
-    private val timeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = context.sp(18f)
-        typeface = Fonts.bold(context)
-        textAlign = Paint.Align.CENTER
-        fontFeatureSettings = "tnum"
-    }
-    private val dayFormat = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
-    private val calendar = java.util.Calendar.getInstance()
-
-    /** "Lun 23 nov": the short day without the abbreviation dots, capitalised. */
-    private fun day(ms: Long): String = dayFormat.format(java.util.Date(ms)).replace(".", "")
-        .replaceFirstChar { it.titlecase() }
-
-    private val timeFormat = android.text.format.DateFormat.getTimeFormat(context)
-    private fun time(ms: Long = System.currentTimeMillis()): String = timeFormat.format(java.util.Date(ms))
-
-    /** Wide enough for the longest day of the year (or "23:59"), so the window never resizes. */
-    private val clockWidth: Float by lazy {
-        calendar.set(2026, 0, 28, 23, 58)
-        var w = timeText.measureText(time(calendar.timeInMillis))
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 12)
-        w = maxOf(w, timeText.measureText(time(calendar.timeInMillis)))
-        repeat(12) { month ->
-            calendar.set(java.util.Calendar.MONTH, month)
-            repeat(7) {
-                calendar.set(java.util.Calendar.DAY_OF_MONTH, 22 + it)
-                w = maxOf(w, label.measureText(day(calendar.timeInMillis)))
-            }
-        }
-        w + 2 * dp(CLOCK_PAD_DP)
-    }
-
-    /** 0 = the time, 1 = the day. */
-    private var dayMix = 0f
-    private val dayAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-        duration = DAY_FADE_MS
-        addUpdateListener { dayMix = it.animatedValue as Float; invalidate() }
-    }
-    private val hideDay = Runnable { fadeDay(0f) }
-
-    private fun fadeDay(to: Float) {
-        dayAnim.cancel()
-        dayAnim.setFloatValues(dayMix, to)
-        dayAnim.start()
-    }
-    private val tick = object : Runnable {
-        override fun run() {
-            invalidate()
-            val now = System.currentTimeMillis()
-            postDelayed(this, MINUTE_MS - now % MINUTE_MS + 50)
-        }
-    }
-
-    private fun showDay() {
-        removeCallbacks(hideDay)
-        if (dayMix < 1f) fadeDay(1f)
-        postDelayed(hideDay, DAY_SHOWN_MS)
-    }
-
-    override fun onVisibilityAggregated(isVisible: Boolean) {
-        super.onVisibilityAggregated(isVisible)
-        removeCallbacks(tick)
-        if (isVisible) tick.run() else {
-            removeCallbacks(hideDay)
-            dayAnim.cancel()
-            dayMix = 0f
-        }
-    }
-
-    private fun drawClock(canvas: Canvas, h: Float) {
-        r.set(margin, margin, margin + clockWidth, margin + h)
-        card.color = Chrome.surface
-        Chrome.shade(card, dp(8f), dp(2.5f))
-        canvas.drawRoundRect(r, h / 2, h / 2, card)
-        edge.color = Chrome.hairline
-        r.inset(dp(0.5f), dp(0.5f))
-        canvas.drawRoundRect(r, h / 2, h / 2, edge)
-        if (pressed == CLOCK) {
-            pressFill.color = Chrome.pressed
-            r.inset(dp(4.5f), dp(4.5f))
-            canvas.drawRoundRect(r, r.height() / 2, r.height() / 2, pressFill)
-        }
-        val cx = margin + clockWidth / 2
-        val cy = margin + h / 2
-        timeText.color = Chrome.text
-        label.color = Chrome.text
-        if (dayMix < 1f) {
-            timeText.alpha = ((1f - dayMix) * 255).toInt()
-            canvas.drawText(time(), cx, cy - (timeText.descent() + timeText.ascent()) / 2, timeText)
-        }
-        if (dayMix > 0f) {
-            label.alpha = (dayMix * 255).toInt()
-            canvas.drawText(day(System.currentTimeMillis()), cx, cy - (label.descent() + label.ascent()) / 2, label)
-            label.alpha = 255
-        }
-    }
-
-    // endregion
+    private val pillLeft get() = margin + dp(HEIGHT_DP) + dp(SHARE_GAP_DP)
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension((pillLeft + cell * 3 + middle + margin).toInt(), (dp(HEIGHT_DP) + 2 * margin).toInt())
     }
 
-    // Parts left to right: clock (5), share (4), then the pill's previous, the "2 / 3" label, next, add.
+    // Parts left to right: share (4), then the pill's previous, the "2 / 3" label, next, add.
     private fun part(x: Float): Int {
-        if (x < shareLeft - dp(SHARE_GAP_DP) / 2) return CLOCK
         if (x < pillLeft - dp(SHARE_GAP_DP) / 2) return SHARE
         val local = x - pillLeft
         return when {
@@ -591,7 +484,6 @@ internal class PagePillView(
 
     override fun onDraw(canvas: Canvas) {
         val h = dp(HEIGHT_DP)
-        drawClock(canvas, h)
         drawShare(canvas, h)
         r.set(pillLeft, margin, width - margin, margin + h)
         card.color = Chrome.surface
@@ -650,7 +542,7 @@ internal class PagePillView(
 
     /** The round share button: three linked dots, graphite on white (inverted while its card is open). */
     private fun drawShare(canvas: Canvas, h: Float) {
-        val cx = shareLeft + h / 2
+        val cx = margin + h / 2
         val cy = margin + h / 2
         card.color = if (shareOpen) Chrome.icon else Chrome.surface
         Chrome.shade(card, dp(8f), dp(2.5f))
@@ -695,7 +587,6 @@ internal class PagePillView(
                     2 -> if (page < pages - 1) onNext()
                     3 -> onAdd()
                     SHARE -> onShare()
-                    CLOCK -> showDay()
                 }
             }
         }
@@ -710,8 +601,149 @@ internal class PagePillView(
         const val ROLL_MS = 320L
         const val SHARE_GAP_DP = 6f
         const val SHARE = 4
-        const val CLOCK = 5
-        const val CLOCK_PAD_DP = 16f
+    }
+}
+
+/**
+ * The clock on the whiteboard: a `Chrome` capsule with the time (the whiteboard has no clock of
+ * its own and the panels hide the status bar). It floats in its own window, so each teacher drags
+ * it where it suits them; a tap shows the day for a few seconds. It redraws once a minute, only
+ * while shown, and never touches the ink.
+ */
+internal class ClockView(context: Context) : View(context) {
+    private val margin = dp(8f)
+    private val card = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
+    private val pressFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val timeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = context.sp(18f)
+        typeface = Fonts.bold(context)
+        textAlign = Paint.Align.CENTER
+        fontFeatureSettings = "tnum"
+    }
+    private val dayText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = context.sp(14.5f)
+        typeface = Fonts.bold(context)
+        textAlign = Paint.Align.CENTER
+        fontFeatureSettings = "tnum"
+    }
+    private val r = RectF()
+    private val dayFormat = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
+    private val timeFormat = android.text.format.DateFormat.getTimeFormat(context)
+
+    /** "Lun 23 nov": the short day without the abbreviation dots, capitalised. */
+    private fun day(ms: Long): String = dayFormat.format(java.util.Date(ms)).replace(".", "")
+        .replaceFirstChar { it.titlecase() }
+
+    private fun time(ms: Long = System.currentTimeMillis()): String = timeFormat.format(java.util.Date(ms))
+
+    /** Wide enough for the longest day of the year (or time), so the window never resizes. */
+    private val capsuleWidth: Float = run {
+        val c = java.util.Calendar.getInstance()
+        c.set(2026, 0, 28, 23, 58)
+        var w = timeText.measureText(time(c.timeInMillis))
+        c.set(java.util.Calendar.HOUR_OF_DAY, 12)
+        w = maxOf(w, timeText.measureText(time(c.timeInMillis)))
+        repeat(12) { month ->
+            c.set(java.util.Calendar.MONTH, month)
+            repeat(7) {
+                c.set(java.util.Calendar.DAY_OF_MONTH, 22 + it)
+                w = maxOf(w, dayText.measureText(day(c.timeInMillis)))
+            }
+        }
+        w + 2 * dp(PAD_DP)
+    }
+
+    /** The window's size: the capsule and its shadow margin. */
+    val windowWidth get() = (capsuleWidth + 2 * margin).toInt()
+    val windowHeight get() = (dp(HEIGHT_DP) + 2 * margin).toInt()
+
+    var pressedLook = false
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
+    /** 0 = the time, 1 = the day. */
+    private var dayMix = 0f
+    private val dayAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = DAY_FADE_MS
+        addUpdateListener { dayMix = it.animatedValue as Float; invalidate() }
+    }
+    private val hideDay = Runnable { fadeDay(0f) }
+    private val tick = object : Runnable {
+        override fun run() {
+            invalidate()
+            postDelayed(this, MINUTE_MS - System.currentTimeMillis() % MINUTE_MS + 50)
+        }
+    }
+
+    init {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) setLayerType(LAYER_TYPE_SOFTWARE, null)
+    }
+
+    private fun fadeDay(to: Float) {
+        dayAnim.cancel()
+        dayAnim.setFloatValues(dayMix, to)
+        dayAnim.start()
+    }
+
+    fun showDay() {
+        removeCallbacks(hideDay)
+        if (dayMix < 1f) fadeDay(1f)
+        postDelayed(hideDay, DAY_SHOWN_MS)
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        removeCallbacks(tick)
+        contentDescription = time()
+        if (isVisible) tick.run() else {
+            removeCallbacks(hideDay)
+            dayAnim.cancel()
+            dayMix = 0f
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(windowWidth, windowHeight)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val h = dp(HEIGHT_DP)
+        val left = (width - capsuleWidth) / 2
+        val top = (height - h) / 2
+        r.set(left, top, left + capsuleWidth, top + h)
+        card.color = Chrome.surface
+        Chrome.shade(card, dp(8f), dp(2.5f))
+        canvas.drawRoundRect(r, h / 2, h / 2, card)
+        edge.color = Chrome.hairline
+        r.inset(dp(0.5f), dp(0.5f))
+        canvas.drawRoundRect(r, h / 2, h / 2, edge)
+        if (pressedLook) {
+            pressFill.color = Chrome.pressed
+            r.inset(dp(4.5f), dp(4.5f))
+            canvas.drawRoundRect(r, r.height() / 2, r.height() / 2, pressFill)
+        }
+        val cx = width / 2f
+        val cy = height / 2f
+        val now = System.currentTimeMillis()
+        if (dayMix < 1f) {
+            timeText.color = Chrome.text
+            timeText.alpha = ((1f - dayMix) * 255).toInt()
+            canvas.drawText(time(now), cx, cy - (timeText.descent() + timeText.ascent()) / 2, timeText)
+        }
+        if (dayMix > 0f) {
+            dayText.color = Chrome.text
+            dayText.alpha = (dayMix * 255).toInt()
+            canvas.drawText(day(now), cx, cy - (dayText.descent() + dayText.ascent()) / 2, dayText)
+        }
+    }
+
+    private companion object {
+        const val HEIGHT_DP = 44f
+        const val PAD_DP = 16f
         const val DAY_FADE_MS = 200L
         const val DAY_SHOWN_MS = 4000L
         const val MINUTE_MS = 60_000L

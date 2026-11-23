@@ -37,9 +37,10 @@ internal class Floater(
     flags: Int = 0,
     private val coreRight: Int = core,
     private val coreLeft: Int = core,
+    height: Int = size,
 ) {
     val params = WindowManager.LayoutParams(
-        size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        size, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or flags,
         PixelFormat.TRANSLUCENT,

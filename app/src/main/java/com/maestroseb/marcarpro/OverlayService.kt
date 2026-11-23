@@ -99,6 +99,7 @@ class OverlayService : Service() {
         private const val TRASH_TOP_DP = 100f
         // A new key since 1.5.0: the clear-all button's old spot, top right, is now the page pill's.
         private const val TRASH_POSITION = "clearAll"
+        private const val CLOCK_POSITION = "clock"
         private const val PILL_EDGE_DP = 24f
         private const val SHARE_WAIT_MS = 150L
         private const val PDF_MIME = "application/pdf"
@@ -151,6 +152,7 @@ class OverlayService : Service() {
     private var colorRing: ColorRingView? = null
     private var colorFloater: Floater? = null
     private var trashFloater: Floater? = null
+    private var clockFloater: Floater? = null
     private var whiteView: MiniOrbView? = null
     private var whiteFloater: Floater? = null
     private var paperPicker: PaperPickerView? = null
@@ -415,6 +417,25 @@ class OverlayService : Service() {
             },
         ))
 
+        // 2b. Clock: only with the whiteboard; at first just left of the share button, then wherever dropped.
+        val clock = ClockView(this)
+        val clockF = Floater(wm, clock, clock.windowWidth, core = clock.windowHeight / 2,
+            coreRight = clock.windowWidth / 2, coreLeft = clock.windowWidth / 2, height = clock.windowHeight)
+        clockFloater = clockF
+        clockF.attach(prefs.position(CLOCK_POSITION, clockHome(clock)))
+        clockF.params.flags = clockF.params.flags or WLP.FLAG_NOT_TOUCHABLE
+        clock.visibility = View.INVISIBLE
+        runCatching { wm.updateViewLayout(clock, clockF.params) }
+        clock.setOnTouchListener(FloatGestures(clockF,
+            onTap = { clock.showDay() },
+            longPressEnabled = { false },
+            onPressChanged = { pressing -> clock.pressedLook = pressing },
+            onDragEnd = { x, y, _ ->
+                prefs.savePosition(CLOCK_POSITION, x, y)
+                reserve(PanelTouch.AREA_CLOCK, clockF)
+            },
+        ))
+
         // 3. Close target, shown while the main orb is dragged (under the orb, never touchable).
         val target = CloseTargetView(this)
         closeTarget = target
@@ -636,6 +657,7 @@ class OverlayService : Service() {
         colorFloater?.detach()
         ringFloater?.detach()
         trashFloater?.detach()
+        clockFloater?.detach()
         canvas?.let { runCatching { wm.removeView(it) } }
         canvas = null
         super.onDestroy()
@@ -1311,7 +1333,7 @@ class OverlayService : Service() {
             duration = CHROME_FADE_MS
             addUpdateListener {
                 Chrome.dark = it.animatedValue as Float
-                for (v in listOf(trashFloater?.view, whiteFloater?.view, pagePill, paperPicker)) v?.invalidate()
+                for (v in listOf(trashFloater?.view, clockFloater?.view, whiteFloater?.view, pagePill, paperPicker)) v?.invalidate()
                 boardList?.applyChrome()
             }
             // The list's rows take the colours when built: once, at the end.
@@ -1514,6 +1536,7 @@ class OverlayService : Service() {
         val v = pagePill ?: return
         if (show == pillShown) return
         pillShown = show
+        showClock(show)
         if (!show) {
             hideShare()
             park(v, pillParams)
@@ -1524,6 +1547,26 @@ class OverlayService : Service() {
         v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         unpark(v, pillParams, place = false)
         placePagePill()
+    }
+
+    /** The clock comes and goes with the whiteboard, like the page pill (hidden, never removed). */
+    private fun showClock(show: Boolean) {
+        val f = clockFloater ?: return
+        f.params.flags = if (show) f.params.flags and WLP.FLAG_NOT_TOUCHABLE.inv() else f.params.flags or WLP.FLAG_NOT_TOUCHABLE
+        f.view.visibility = if (show && !controlsHidden) View.VISIBLE else View.INVISIBLE
+        runCatching { wm.updateViewLayout(f.view, f.params) }
+        if (show) reserve(PanelTouch.AREA_CLOCK, f) else panel?.clearArea(PanelTouch.AREA_CLOCK)
+    }
+
+    /** The clock's first place: its capsule just left of the share button, on the page pill's line. */
+    private fun clockHome(clock: ClockView): Point {
+        val pill = pagePill ?: return Point(wm.screenSize().x / 2, dpi(PILL_EDGE_DP) + dpi(22f))
+        pill.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val screen = wm.screenSize()
+        val m = dpi(8f)
+        val shareLeft = screen.x - dpi(PILL_EDGE_DP) - pill.measuredWidth + 2 * m
+        val capsule = clock.windowWidth - 2 * m
+        return Point(shareLeft - dpi(6f) - capsule / 2, dpi(PILL_EDGE_DP) + dpi(22f))
     }
 
     /**
@@ -2105,6 +2148,7 @@ class OverlayService : Service() {
         val v = if (visible) View.VISIBLE else View.INVISIBLE
         // The rings are closed by now; their windows stay GONE until they open.
         for (f in listOf(orbFloater, trashFloater, whiteFloater)) f?.view?.visibility = v
+        clockFloater?.view?.visibility = if (visible && pillShown) View.VISIBLE else View.INVISIBLE
         controlsHidden = !visible
         updateQuick()
     }
