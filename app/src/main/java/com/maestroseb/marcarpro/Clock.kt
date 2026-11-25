@@ -50,9 +50,31 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         w + 2 * pad
     }
 
-    /** The timer's part: its icon, then "88:88" or "Time!", whichever is wider. */
-    private val timerWidth: Float by lazy {
-        dp(ICON_DP) + dp(6f) + maxOf(timeText.measureText("88:88"), timeText.measureText(context.getString(R.string.timer_done))) + 2 * pad
+    /**
+     * The timer's part fits its text's shape, not each number: with tabular digits "0:07" and
+     * "9:59" are as wide, so it only changes at "10:00", past an hour or at "Time!" (growing to
+     * the right, the time never moves).
+     */
+    private var timerWidth = 0f
+
+    private fun widthFor(label: String) =
+        dp(ICON_DP) + dp(6f) + timeText.measureText(label.replace(DIGIT, "8")) + 2 * pad
+
+    /** What the timer part shows now. */
+    private fun timerLabel(): String = when {
+        ended -> context.getString(R.string.timer_done)
+        mode == Mode.WATCH -> clockText(elapsed() - 999)
+        else -> clockText(remaining())
+    }
+
+    /** Resizes the capsule if the timer's text changed shape. */
+    private fun fit() {
+        val w = if (mode == Mode.NONE) 0f else widthFor(timerLabel())
+        if (w != timerWidth) {
+            timerWidth = w
+            requestLayout()
+            onResize(windowWidth)
+        }
     }
 
     private val capsuleWidth get() = timeWidth + if (mode == Mode.NONE) 0f else timerWidth
@@ -89,6 +111,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
     private val end = Runnable {
         if (mode != Mode.COUNT || paused) return@Runnable
         ended = true
+        fit()
         invalidate()
         celebrate()
         onEnd()
@@ -136,14 +159,13 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
 
     private fun start(m: Mode, ms: Long) {
         flash = 0f
-        val grew = mode == Mode.NONE
         mode = m
         duration = ms
         startedAt = now()
         pausedAt = 0L
         ended = false
         armEnd()
-        if (grew) resized()
+        resized()
         restartTick()
     }
 
@@ -175,9 +197,9 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
     }
 
     private fun resized() {
-        requestLayout()
+        timerWidth = -1f
+        fit()
         invalidate()
-        onResize(windowWidth)
     }
 
     /** "4:05", or "1:02:05" past an hour. */
@@ -193,6 +215,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
 
     private val tick = object : Runnable {
         override fun run() {
+            fit()
             invalidate()
             if (warning && !paused && isShown) beat(BEAT_WARN, 420L)
             if (mode == Mode.NONE || paused || ended) {
@@ -259,11 +282,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         if (mode == Mode.WATCH) drawWatch(canvas, ix, cy) else drawRing(canvas, ix, cy, (remaining().toFloat() / duration).coerceIn(0f, 1f))
         timeText.color = color
         timeText.textAlign = Paint.Align.LEFT
-        val label = when {
-            ended -> context.getString(R.string.timer_done)
-            mode == Mode.WATCH -> clockText(elapsed() - 999)
-            else -> clockText(remaining())
-        }
+        val label = timerLabel()
         canvas.drawText(label, ix + dp(ICON_DP) / 2 + dp(6f), base, timeText)
         timeText.textAlign = Paint.Align.CENTER
     }
@@ -294,6 +313,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         private const val PAD_DP = 16f
         private const val ICON_DP = 20f
         private const val MINUTE_MS = 60_000L
+        private val DIGIT = Regex("[0-9]")
         /** The pen's blue: the one accent on the whiteboard's controls. */
         const val ACCENT = 0xFF3B5BDB.toInt()
         const val END = 0xFFD9363E.toInt()
