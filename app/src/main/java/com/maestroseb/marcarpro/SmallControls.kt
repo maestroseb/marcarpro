@@ -107,16 +107,16 @@ internal class MiniOrbView(context: Context, iconRes: Int, badgeRes: Int = 0) : 
  * closes, the board clears.
  */
 @SuppressLint("ViewConstructor")
-internal class TrashView(context: Context) : View(context) {
+internal open class TrashView(context: Context, iconRes: Int = R.drawable.ic_trash, private val accent: Int = OrbStyle.DANGER) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1f) }
     private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(3.5f)
         strokeCap = Paint.Cap.ROUND
-        color = OrbStyle.DANGER
+        color = accent
     }
-    private val icon = ContextCompat.getDrawable(context, R.drawable.ic_trash)!!.mutate()
+    private val icon = ContextCompat.getDrawable(context, iconRes)!!.mutate()
     private var progress = 0f
     private var holding = false
     private val arc = RectF()
@@ -161,7 +161,7 @@ internal class TrashView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, r, fill)
         canvas.drawCircle(cx, cy, r - dp(0.5f), ring)
         val s = dp(18f)
-        icon.setTint(if (holding) OrbStyle.DANGER else Chrome.icon)
+        icon.setTint(if (holding) accent else Chrome.icon)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
         if (progress > 0f) {

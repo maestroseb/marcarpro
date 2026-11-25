@@ -86,7 +86,7 @@ internal object Chrome {
 }
 
 /** Ring items that switch something on and off instead of picking a tool. */
-internal enum class RingToggle { HIDE, PUPILS, TEXT }
+internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK }
 
 /** One tool in the ring. */
 internal class RingItem(val tool: Tool?, val icon: Int, val label: String, val toggle: RingToggle? = null, val tint: Int) {
@@ -216,7 +216,7 @@ internal class OrbitLayout(
         for (s in satellites) s.active = when (s.item.toggle) {
             RingToggle.HIDE -> hidden
             RingToggle.PUPILS -> pupils
-            RingToggle.TEXT -> false // a one-off action, never "on"
+            RingToggle.TEXT, RingToggle.LOCK -> false // one-off actions, never "on"
             null -> s.item.tool == tool
         }
     }

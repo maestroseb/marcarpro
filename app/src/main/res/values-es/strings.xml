@@ -236,4 +236,8 @@
     <string name="timer_remove">Quitar</string>
     <string name="timer_again">Repetir</string>
     <string name="timer_done">¡Tiempo!</string>
+    <string name="tool_lock">Bloquear pantalla</string>
+    <string name="lock_on">Pantalla bloqueada · mantén pulsado el candado para abrir</string>
+    <string name="lock_hold">Mantén pulsado para desbloquear</string>
+    <string name="lock_off">Pantalla desbloqueada</string>
 </resources>

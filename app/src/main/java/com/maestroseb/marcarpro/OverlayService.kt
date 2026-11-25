@@ -1,5 +1,7 @@
 package com.maestroseb.marcarpro
 
+import android.annotation.SuppressLint
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -17,6 +19,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams as WLP
@@ -100,6 +103,8 @@ class OverlayService : Service() {
         // A new key since 1.5.0: the clear-all button's old spot, top right, is now the page pill's.
         private const val TRASH_POSITION = "clearAll"
         private const val CLOCK_POSITION = "clock"
+        private const val LOCK_POSITION = "lock"
+        private const val LOCK_HOLD_MS = 2000L
         private const val PILL_EDGE_DP = 24f
         private const val SHARE_WAIT_MS = 150L
         private const val PDF_MIME = "application/pdf"
@@ -154,6 +159,11 @@ class OverlayService : Service() {
     private var trashFloater: Floater? = null
     private var clockFloater: Floater? = null
     private var timerCard: TimerCardView? = null
+    private var lockShield: View? = null
+    private var lockFloater: Floater? = null
+    private var locked = false
+    /** Touches resting on the shield right now (a sheet of paper, a hand): the padlock ignores them. */
+    private var shieldTouches = 0
     private var timerShown = false
     private val timerParams = WLP(
         WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
@@ -470,6 +480,7 @@ class OverlayService : Service() {
             RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
             RingItem(null, R.drawable.ic_pupils, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
             RingItem(null, R.drawable.ic_text, getString(R.string.tool_text), RingToggle.TEXT, tint = 0xFF1C7ED6.toInt()),
+            RingItem(null, R.drawable.ic_lock, getString(R.string.tool_lock), RingToggle.LOCK, tint = 0xFF495057.toInt()),
         )
         ringItems = ring
         // First time: against the right edge, a little above the middle (clear of the panel's own side tab).
@@ -598,6 +609,56 @@ class OverlayService : Service() {
             },
         ))
 
+        // 5b. Screen lock: a full-screen shield that eats every touch (on top of everything added so
+        // far) and the padlock above it, the only thing that answers. Both GONE until locked.
+        val shield = object : View(this) {
+            @SuppressLint("ClickableViewAccessibility")
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                shieldTouches = when (e.actionMasked) {
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> 0
+                    MotionEvent.ACTION_POINTER_UP -> e.pointerCount - 1
+                    else -> e.pointerCount
+                }
+                return true
+            }
+        }.apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        lockShield = shield
+        wm.addView(shield, WLP(
+            WLP.MATCH_PARENT, WLP.MATCH_PARENT, WLP.TYPE_APPLICATION_OVERLAY,
+            WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_NOT_TOUCHABLE or WLP.FLAG_LAYOUT_IN_SCREEN or WLP.FLAG_LAYOUT_NO_LIMITS or WLP.FLAG_KEEP_SCREEN_ON,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START; title = "Marcar Pro lock" })
+        val padlock = TrashView(this, R.drawable.ic_lock, accent = 0xFF3B5BDB.toInt()).apply {
+            contentDescription = getString(R.string.lock_hold)
+            visibility = View.GONE
+        }
+        val lockF = Floater(wm, padlock, dpi(52f), core = dpi(20f))
+        lockFloater = lockF
+        // First time: high in the top right corner, out of small children's reach.
+        lockF.attach(prefs.position(LOCK_POSITION, Point(screen.x - dpi(40f), dpi(40f))))
+        lockF.params.flags = lockF.params.flags or WLP.FLAG_NOT_TOUCHABLE
+        runCatching { wm.updateViewLayout(padlock, lockF.params) }
+        val lockGestures = FloatGestures(lockF, LOCK_HOLD_MS,
+            onTap = { toast(R.string.lock_hold) },
+            onLongPress = ::unlockScreen,
+            onPressChanged = { pressing -> padlock.hold(pressing, LOCK_HOLD_MS) },
+            onDragEnd = { x, y, _ -> prefs.savePosition(LOCK_POSITION, x, y) },
+        )
+        var lockIgnored = false
+        padlock.setOnTouchListener { v, e ->
+            // A sheet of paper or a hand on the screen (more than one touch, here or on the shield)
+            // must never open it: only one clean finger held still.
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) lockIgnored = shieldTouches > 0
+            if (!lockIgnored && e.pointerCount > 1) {
+                lockIgnored = true
+                val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+                lockGestures.onTouch(v, cancel)
+                cancel.recycle()
+            }
+            if (!lockIgnored) lockGestures.onTouch(v, e)
+            true
+        }
+
         // 6. Palette card, shown on demand.
         palette = PaletteView(this, ::onPick).apply {
             onOutside = ::hidePalette
@@ -675,6 +736,8 @@ class OverlayService : Service() {
         ringFloater?.detach()
         trashFloater?.detach()
         clockFloater?.detach()
+        lockFloater?.detach()
+        lockShield?.let { runCatching { wm.removeView(it) } }
         canvas?.let { runCatching { wm.removeView(it) } }
         canvas = null
         super.onDestroy()
@@ -975,6 +1038,12 @@ class OverlayService : Service() {
             RingToggle.PUPILS -> {
                 hidePalette()
                 togglePupils()
+                return
+            }
+            RingToggle.LOCK -> {
+                hidePalette()
+                closeRing()
+                lockScreen()
                 return
             }
             RingToggle.TEXT -> {
@@ -2779,6 +2848,56 @@ class OverlayService : Service() {
         }
         updateQuick()
     }
+
+    // region Screen lock
+
+    /**
+     * Nothing answers to touch but the padlock (held [LOCK_HOLD_MS]): for tracing on a sheet of
+     * paper held to the screen, or so that small children can't touch what is on it. What is under
+     * keeps playing (video, music, the PC with its mouse), and the screen doesn't sleep meanwhile.
+     */
+    private fun lockScreen() {
+        val shield = lockShield ?: return
+        val f = lockFloater ?: return
+        if (locked) return
+        locked = true
+        hideTimerCard()
+        hideShare()
+        hideBoards()
+        showControls(false)
+        shieldTouches = 0
+        val sp = shield.layoutParams as WLP
+        sp.flags = sp.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
+        shield.visibility = View.VISIBLE
+        runCatching { wm.updateViewLayout(shield, sp) }
+        f.params.flags = f.params.flags and WLP.FLAG_NOT_TOUCHABLE.inv()
+        f.view.visibility = View.VISIBLE
+        runCatching { wm.updateViewLayout(f.view, f.params) }
+        val screen = wm.screenSize()
+        panel?.setArea(PanelTouch.AREA_LOCK, Rect(0, 0, screen.x, screen.y))
+        toast(R.string.lock_on, long = true)
+    }
+
+    private fun unlockScreen() {
+        val shield = lockShield ?: return
+        val f = lockFloater ?: return
+        if (!locked) return
+        locked = false
+        (f.view as? TrashView)?.hold(false, 0)
+        val sp = shield.layoutParams as WLP
+        sp.flags = sp.flags or WLP.FLAG_NOT_TOUCHABLE
+        // GONE, not just transparent: Android 12+ blocks touches through another app's visible window.
+        shield.visibility = View.GONE
+        runCatching { wm.updateViewLayout(shield, sp) }
+        f.params.flags = f.params.flags or WLP.FLAG_NOT_TOUCHABLE
+        f.view.visibility = View.GONE
+        runCatching { wm.updateViewLayout(f.view, f.params) }
+        panel?.clearArea(PanelTouch.AREA_LOCK)
+        showControls(true)
+        toast(R.string.lock_off)
+    }
+
+    // endregion
 
     // region Quick colours
 
