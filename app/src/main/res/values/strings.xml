@@ -233,7 +233,7 @@
     <string name="timer_remove">Remove</string>
     <string name="timer_again">Again</string>
     <string name="timer_done">Time!</string>
-    <string name="tool_lock">Lock screen</string>
+    <string name="tool_lock">Lock</string>
     <string name="lock_on">Screen locked · hold the padlock to unlock</string>
     <string name="lock_hold">Hold to unlock</string>
     <string name="lock_off">Screen unlocked</string>
