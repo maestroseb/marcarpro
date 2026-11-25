@@ -35,8 +35,8 @@ internal class Floater(
     size: Int,
     private val core: Int,
     flags: Int = 0,
-    private val coreRight: Int = core,
-    private val coreLeft: Int = core,
+    private var coreRight: Int = core,
+    private var coreLeft: Int = core,
     height: Int = size,
 ) {
     val params = WindowManager.LayoutParams(
@@ -108,6 +108,21 @@ internal class Floater(
 
     private val hide = Runnable {
         if (params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE != 0) view.visibility = View.GONE
+    }
+
+    /**
+     * Makes the window [w] wide keeping its left edge (for a capsule that grows to the right):
+     * its content does not move while the new size arrives.
+     */
+    fun resizeKeepingLeft(w: Int) {
+        if (w == params.width) return
+        val left = params.x
+        params.width = w
+        coreLeft = w / 2
+        coreRight = w / 2
+        cx = left + w / 2
+        clamp()
+        place()
     }
 
     fun moveTo(x: Int, y: Int) {

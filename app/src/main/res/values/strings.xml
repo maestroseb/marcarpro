@@ -226,4 +226,11 @@
     <string name="setup_smart_ink_path">Settings › SMART › Annotation: turn off «Annotation layers», the first switch</string>
     <string name="smart_ink_go">Take me there</string>
     <string name="smart_ink_there">Turn off «Annotation layers», the first switch. To bring it back, turn it on again.</string>
+    <string name="timer_stopwatch">Stopwatch</string>
+    <string name="timer_countdown">Countdown</string>
+    <string name="timer_pause">Pause</string>
+    <string name="timer_resume">Resume</string>
+    <string name="timer_remove">Remove</string>
+    <string name="timer_again">Again</string>
+    <string name="timer_done">Time!</string>
 </resources>

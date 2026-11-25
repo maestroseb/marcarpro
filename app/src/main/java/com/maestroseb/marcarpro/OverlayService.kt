@@ -153,6 +153,15 @@ class OverlayService : Service() {
     private var colorFloater: Floater? = null
     private var trashFloater: Floater? = null
     private var clockFloater: Floater? = null
+    private var timerCard: TimerCardView? = null
+    private var timerShown = false
+    private val timerParams = WLP(
+        WLP.WRAP_CONTENT, WLP.WRAP_CONTENT, WLP.TYPE_APPLICATION_OVERLAY,
+        WLP.FLAG_NOT_FOCUSABLE or WLP.FLAG_LAYOUT_IN_SCREEN or WLP.FLAG_WATCH_OUTSIDE_TOUCH, PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        title = "Marcar Pro timer"
+    }
     private var whiteView: MiniOrbView? = null
     private var whiteFloater: Floater? = null
     private var paperPicker: PaperPickerView? = null
@@ -400,6 +409,8 @@ class OverlayService : Service() {
         dock(shareCard!!, shareParams)
         driveCard = DriveCardView(this, onClose = ::closeDrive)
         dock(driveCard!!, driveParams)
+        timerCard = TimerCardView(this, onOutside = ::hideTimerCard, onDone = ::hideTimerCard)
+        dock(timerCard!!, timerParams)
 
         // 2. Clear-all: press and hold.
         val trash = TrashView(this)
@@ -418,8 +429,13 @@ class OverlayService : Service() {
         ))
 
         // 2b. Clock: only with the whiteboard; at first just left of the share button, then wherever dropped.
-        val clock = ClockView(this)
-        val clockF = Floater(wm, clock, clock.windowWidth, core = clock.windowHeight / 2,
+        var clockF: Floater? = null
+        val clock = ClockView(this,
+            onResize = { w -> clockF?.let { f -> f.resizeKeepingLeft(w); if (pillShown) reserve(PanelTouch.AREA_CLOCK, f) } },
+            onEnd = ::timerEnded,
+        )
+        timerCard?.clock = clock
+        clockF = Floater(wm, clock, clock.windowWidth, core = clock.windowHeight / 2,
             coreRight = clock.windowWidth / 2, coreLeft = clock.windowWidth / 2, height = clock.windowHeight)
         clockFloater = clockF
         clockF.attach(prefs.position(CLOCK_POSITION, clockHome(clock)))
@@ -427,9 +443,10 @@ class OverlayService : Service() {
         clock.visibility = View.INVISIBLE
         runCatching { wm.updateViewLayout(clock, clockF.params) }
         clock.setOnTouchListener(FloatGestures(clockF,
-            onTap = { clock.showDay() },
+            onTap = ::toggleTimerCard,
             longPressEnabled = { false },
             onPressChanged = { pressing -> clock.pressedLook = pressing },
+            onDragStart = ::hideTimerCard,
             onDragEnd = { x, y, _ ->
                 prefs.savePosition(CLOCK_POSITION, x, y)
                 reserve(PanelTouch.AREA_CLOCK, clockF)
@@ -1555,7 +1572,49 @@ class OverlayService : Service() {
         f.params.flags = if (show) f.params.flags and WLP.FLAG_NOT_TOUCHABLE.inv() else f.params.flags or WLP.FLAG_NOT_TOUCHABLE
         f.view.visibility = if (show && !controlsHidden) View.VISIBLE else View.INVISIBLE
         runCatching { wm.updateViewLayout(f.view, f.params) }
-        if (show) reserve(PanelTouch.AREA_CLOCK, f) else panel?.clearArea(PanelTouch.AREA_CLOCK)
+        if (show) reserve(PanelTouch.AREA_CLOCK, f) else {
+            panel?.clearArea(PanelTouch.AREA_CLOCK)
+            hideTimerCard()
+        }
+    }
+
+    private fun toggleTimerCard() {
+        if (timerShown) hideTimerCard() else showTimerCard()
+    }
+
+    /** Under the clock's capsule (above it near the bottom), their left edges lined up. */
+    private fun showTimerCard() {
+        val v = timerCard ?: return
+        val f = clockFloater ?: return
+        if (!whiteboard) return
+        hideShare()
+        timerShown = true
+        v.refresh()
+        v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val screen = wm.screenSize()
+        val b = f.bounds()
+        val shadow = dpi(10f) - dpi(8f) // the card's shadow margin is a little wider than the clock's
+        timerParams.x = (b.left - shadow).coerceIn(0, (screen.x - v.measuredWidth).coerceAtLeast(0))
+        val below = b.bottom - dpi(8f) - dpi(10f) + dpi(6f)
+        timerParams.y = if (below + v.measuredHeight <= screen.y) below else (b.top + dpi(8f) + dpi(10f) - dpi(6f) - v.measuredHeight).coerceAtLeast(0)
+        unpark(v, timerParams)
+        panel?.setArea(PanelTouch.AREA_TIMER, Rect(timerParams.x, timerParams.y, timerParams.x + v.measuredWidth, timerParams.y + v.measuredHeight))
+    }
+
+    private fun hideTimerCard() {
+        val v = timerCard ?: return
+        if (!timerShown) return
+        timerShown = false
+        park(v, timerParams)
+        panel?.clearArea(PanelTouch.AREA_TIMER)
+    }
+
+    /** A countdown reached zero: a soft chime (the capsule already says so in red). */
+    private fun timerEnded() {
+        runCatching {
+            val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION) ?: return
+            android.media.RingtoneManager.getRingtone(this, uri)?.play()
+        }
     }
 
     /** The clock's first place: its capsule just left of the share button, on the page pill's line. */
@@ -1630,6 +1689,7 @@ class OverlayService : Service() {
         val v = shareCard ?: return
         if (!whiteboard || shareShown) return
         hideBoards()
+        hideTimerCard()
         shareShown = true
         v.busy = null
         v.pages = whiteboards.pages

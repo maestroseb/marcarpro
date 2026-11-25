@@ -229,4 +229,11 @@
     <string name="setup_smart_ink_path">Ajustes › SMART › Anotación: apaga «Capas de anotación», el primer interruptor</string>
     <string name="smart_ink_go">Llévame</string>
     <string name="smart_ink_there">Apaga «Capas de anotación», el primer interruptor. Para recuperarla, vuelve a encenderlo.</string>
+    <string name="timer_stopwatch">Cronómetro</string>
+    <string name="timer_countdown">Cuenta atrás</string>
+    <string name="timer_pause">Pausa</string>
+    <string name="timer_resume">Seguir</string>
+    <string name="timer_remove">Quitar</string>
+    <string name="timer_again">Repetir</string>
+    <string name="timer_done">¡Tiempo!</string>
 </resources>

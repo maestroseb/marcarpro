@@ -238,7 +238,8 @@ internal class PanelTouch(context: Context) {
         const val AREA_SHARE = 7717
         const val AREA_DRIVE = 7718
         const val AREA_CLOCK = 7719
-        private val ALL_AREAS = AREA_INK..AREA_CLOCK
+        const val AREA_TIMER = 7720
+        private val ALL_AREAS = AREA_INK..AREA_TIMER
         private const val REMOVE = "com.seewo.sdk.internal.command.touch.CmdRemoveNoTouchArea"
 
         private val RESULT = Regex("""\\"result\\":(-?\d+)""")
