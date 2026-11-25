@@ -471,16 +471,22 @@ class OverlayService : Service() {
         targetF.attach(screen.x / 2, screen.y - dpi(96f))
 
         // 4. Main orb and its ring, each in its own window (added last, so they float above the others).
+        // What is used all the time sits in the ring; the rest waits in drawers that open on a second
+        // arc. A drawer with a single tool would be a needless tap: that tool sits in the ring.
+        val classTint = 0xFF5C677D.toInt()
+        val classDrawer = listOf(
+            RingItem(null, R.drawable.ic_hide, getString(R.string.tool_hide), RingToggle.HIDE, tint = classTint),
+            RingItem(null, R.drawable.ic_lock, getString(R.string.tool_lock), RingToggle.LOCK, tint = classTint),
+        )
         val ring = listOf(
             RingItem(Tool.PEN, R.drawable.ic_pen, getString(R.string.tool_pen), tint = 0xFF3B5BDB.toInt()),
             RingItem(Tool.HIGHLIGHTER, R.drawable.ic_highlighter, getString(R.string.tool_highlighter), tint = 0xFFF08C00.toInt()),
             RingItem(Tool.ERASER, R.drawable.ic_eraser, getString(R.string.tool_eraser), tint = 0xFFE03E5E.toInt()),
-            RingItem(null, R.drawable.ic_hide, getString(R.string.tool_hide), RingToggle.HIDE, tint = 0xFF5C677D.toInt()),
             RingItem(Tool.MAGIC, R.drawable.ic_magic, getString(R.string.tool_magic), tint = 0xFFC2255C.toInt()),
-            RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
-            RingItem(null, R.drawable.ic_pupils, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
             RingItem(null, R.drawable.ic_text, getString(R.string.tool_text), RingToggle.TEXT, tint = 0xFF1C7ED6.toInt()),
-            RingItem(null, R.drawable.ic_lock, getString(R.string.tool_lock), RingToggle.LOCK, tint = 0xFF495057.toInt()),
+            RingItem(null, R.drawable.ic_pupils, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
+            RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
+            RingItem(null, R.drawable.ic_school, getString(R.string.tool_class), tint = classTint, children = classDrawer, drawerKey = "CLASS"),
         )
         ringItems = ring
         // First time: against the right edge, a little above the middle (clear of the panel's own side tab).
@@ -489,6 +495,7 @@ class OverlayService : Service() {
         val ringOrder = prefs.ringOrder.map { if (it == "LASSO") RingToggle.TEXT.name else it }
         val orbitView = OrbitLayout(this, ring, ringOrder, prefs.ringHidden, ::onRingItem)
         orbit = orbitView
+        orbitView.onDrawer = ::armIdle
         orbitView.onOrderChanged = { order, hidden ->
             prefs.ringOrder = order
             prefs.ringHidden = hidden
@@ -536,7 +543,8 @@ class OverlayService : Service() {
                 when {
                     orbitView.editing -> orbitView.stopEditing()
                     // On the whiteboard the badge is "Pupils" (its screen button goes back to the screen).
-                    orb.downOnBadge && whiteboard && !paused -> togglePupils()
+                    // While pupils write (anywhere) the badge is "Pupils" too: it brings the teacher back.
+                    orb.downOnBadge && orb.pupilsBadge -> togglePupils()
                     orb.downOnBadge || paused -> togglePause()
                     // Pupils writing: the orb brings the teacher's pen back, like after the cursor.
                     orb.pupilsBadge && orb.pupilsOn -> {
@@ -548,9 +556,10 @@ class OverlayService : Service() {
                     else -> toggleRing()
                 }
             },
-            onLongPress = ::undo,
-            // A slow press on the badge or the dot is still a tap on it, never an undo.
-            longPressEnabled = { !orb.downOnBadge && !orb.downOnDot },
+            // Holding the cursor badge goes straight to "Pupils" (a shortcut past the ring).
+            onLongPress = { if (orb.downOnBadge) pupilsNow() else undo() },
+            // A slow press on the dot (or on the badge already showing "Pupils") is still a tap, never an undo.
+            longPressEnabled = { !orb.downOnDot && !(orb.downOnBadge && orb.pupilsBadge) },
             onDragStart = {
                 // Nothing stays open where the orb was: the ring, the colours, the palette card.
                 closeRing()
@@ -2440,6 +2449,12 @@ class OverlayService : Service() {
 
     // endregion
 
+    /** Straight to "Pupils" from the cursor badge: writing again if the screen was in use. */
+    private fun pupilsNow() {
+        if (paused) togglePause()
+        if (prefs.fingerMode != FingerMode.WRITE) togglePupils()
+    }
+
     /** Finger moves the ink ↔ finger writes too (several pupils at once). */
     private fun togglePupils() {
         val next = if (prefs.fingerMode == FingerMode.APPS) FingerMode.WRITE else FingerMode.APPS
@@ -2820,7 +2835,7 @@ class OverlayService : Service() {
      * reads well (the highlighter's orange needs more).
      */
     private fun orbTint(tool: Tool): Int {
-        val tint = ringItems.firstOrNull { it.tool == tool }?.tint ?: return OrbStyle.TEAL
+        val tint = ringItems.flatMap { listOf(it) + it.children }.firstOrNull { it.tool == tool }?.tint ?: return OrbStyle.TEAL
         return androidx.core.graphics.ColorUtils.blendARGB(tint, android.graphics.Color.BLACK, if (tool == Tool.HIGHLIGHTER) 0.18f else 0.05f)
     }
 
@@ -2840,7 +2855,7 @@ class OverlayService : Service() {
                 inkColor = if (ink.tool == Tool.MAGIC) Presets.MAGIC_COLOR else prefs.colorFor(ink.tool)
                 sizeLevel = prefs.sizeFor(inkTarget())
                 using = paused
-                pupilsBadge = whiteboard && !paused
+                pupilsBadge = !paused && (whiteboard || prefs.fingerMode == FingerMode.WRITE)
                 pupilsOn = prefs.fingerMode == FingerMode.WRITE
                 tint = orbTint(ink.tool)
             }

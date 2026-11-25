@@ -239,4 +239,5 @@
     <string name="lock_off">Screen unlocked</string>
     <string name="timer_countdown_min">Countdown (minutes)</string>
     <string name="timer_start">Start</string>
+    <string name="tool_class">Class</string>
 </resources>

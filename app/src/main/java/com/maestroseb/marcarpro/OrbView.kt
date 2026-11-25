@@ -89,9 +89,20 @@ internal object Chrome {
 internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK }
 
 /** One tool in the ring. */
-internal class RingItem(val tool: Tool?, val icon: Int, val label: String, val toggle: RingToggle? = null, val tint: Int) {
+internal class RingItem(
+    val tool: Tool?,
+    val icon: Int,
+    val label: String,
+    val toggle: RingToggle? = null,
+    val tint: Int,
+    /** A drawer: its tools fan out on a second, wider arc when it is tapped (with a zip on top). */
+    val children: List<RingItem> = emptyList(),
+    private val drawerKey: String? = null,
+) {
     /** Stable name, for remembering the teacher's order. */
-    val key: String get() = tool?.name ?: toggle!!.name
+    val key: String get() = tool?.name ?: toggle?.name ?: drawerKey!!
+
+    val isDrawer get() = children.isNotEmpty()
 }
 
 /**
@@ -114,14 +125,30 @@ internal class OrbitLayout(
 
     private val byKey = items.associate { item ->
         item.key to SatelliteView(context, item).also { s ->
-            s.setOnClickListener { onItem(item, s) }
+            s.setOnClickListener { if (item.isDrawer) toggleDrawer(s) else { closeDrawer(); onItem(item, s) } }
             s.setOnLongClickListener {
                 if (isOpen && !editing) startEditing()
                 true
             }
         }
     }
-    private val satellites = byKey.values.toList()
+
+    /** Each drawer's tools, in its order (they are not in the ring's order nor editable). */
+    private val kids: Map<SatelliteView, List<SatelliteView>> = byKey.values.filter { it.item.isDrawer }.associateWith { host ->
+        host.item.children.map { child ->
+            SatelliteView(context, child).also { s ->
+                s.setOnClickListener {
+                    onItem(child, s)
+                    closeDrawer()
+                }
+            }
+        }
+    }
+    private val satellites = byKey.values.toList() + kids.values.flatten()
+
+    /** The drawer open now, if any, and where its tools sit. */
+    private var drawer: SatelliteView? = null
+    private var kidSlots = emptyList<PointF>()
 
     // The teacher's order (tools added by a later version go at the end) and the tools left out.
     private val order = (order.filter { it in byKey } + byKey.keys.filter { it !in order }).toMutableList()
@@ -145,7 +172,10 @@ internal class OrbitLayout(
     /** Near an edge the tools fan out on a wider arc of this radius instead of a full ring. */
     private val fanRadius = max(radius, (items.size - 1) * satSize * STEP.toFloat() / FAN_SPAN.toFloat())
 
-    val openSize = (2 * (fanRadius + satSize / 2f + dp(34f))).toInt()
+    /** How much further out than the ring a drawer's tools sit. */
+    private val drawerReach = satSize * DRAWER_REACH
+
+    val openSize = (2 * (fanRadius + (if (kids.isEmpty()) 0f else drawerReach) + satSize / 2f + dp(34f))).toInt()
 
     var isOpen = false
         private set
@@ -213,13 +243,102 @@ internal class OrbitLayout(
     }
 
     fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean) {
-        for (s in satellites) s.active = when (s.item.toggle) {
+        for (s in satellites) if (!s.item.isDrawer) s.active = when (s.item.toggle) {
             RingToggle.HIDE -> hidden
             RingToggle.PUPILS -> pupils
             RingToggle.TEXT, RingToggle.LOCK -> false // one-off actions, never "on"
             null -> s.item.tool == tool
         }
+        // A drawer wears its colour while one of its tools is on (hidden ink, a ruler in hand).
+        for ((host, list) in kids) host.active = list.any { it.active }
     }
+
+    // region Drawers
+
+    /** Called when a drawer opens or closes: the ring is in use (it must not close itself for a while). */
+    var onDrawer: (() -> Unit)? = null
+
+    private fun toggleDrawer(host: SatelliteView) {
+        if (editing) return
+        if (drawer === host) closeDrawer() else openDrawer(host)
+        onDrawer?.invoke()
+    }
+
+    /**
+     * Its tools come out of it onto a wider arc, centred on it (turned towards the middle of the
+     * screen if they would not fit); the rest of the ring steps back.
+     */
+    private fun openDrawer(host: SatelliteView) {
+        closeDrawer(animate = false)
+        val shown = shown()
+        val i = shown.indexOf(host)
+        if (i < 0 || i >= slots.size) return
+        val list = kids[host] ?: return
+        drawer = host
+        host.zipOpen = true
+        val hp = slots[i]
+        val a = atan2(hp.y.toDouble(), hp.x.toDouble())
+        val r = hypot(hp.x, hp.y) + drawerReach
+        val step = satSize * STEP / r
+        val n = list.size
+        val margin = satSize / 2f + dp(8f)
+        val labelRoom = dp(26f)
+        val at = { base: Double -> (0 until n).map { j -> base + (j - (n - 1) / 2.0) * step } }
+        val fits = { base: Double ->
+            at(base).all { ang ->
+                val x = openCx + cos(ang) * r
+                val y = openCy + sin(ang) * r
+                x in margin..(screenW - margin) && y in margin..(screenH - margin - labelRoom)
+            }
+        }
+        val base = FAN_TURNS.map { a + it * 0.5 }.firstOrNull(fits) ?: a
+        kidSlots = at(base).map { ang -> PointF((cos(ang) * r).toFloat(), (sin(ang) * r).toFloat()) }
+        spreadLabels(list, kidSlots)
+        for (s in shown) if (s !== host) {
+            s.animate().alpha(DIM_ALPHA).scaleX(DIM_SCALE).scaleY(DIM_SCALE).setStartDelay(0).setDuration(200)
+                .setInterpolator(EASE).withEndAction(null).start()
+        }
+        list.forEachIndexed { j, s ->
+            s.animate().cancel()
+            s.visibility = VISIBLE
+            s.bringToFront()
+            s.translationX = hp.x
+            s.translationY = hp.y - s.circleOffset()
+            s.scaleX = 0.3f
+            s.scaleY = 0.3f
+            s.alpha = 0f
+            s.animate().translationX(kidSlots[j].x).translationY(kidSlots[j].y - s.circleOffset()).scaleX(1f).scaleY(1f).alpha(1f)
+                .setStartDelay(60L + j * 30L).setDuration(340).setInterpolator(OvershootInterpolator(1.2f))
+                .withLayer().withEndAction(null).start()
+        }
+    }
+
+    /** Its tools go back into it and the ring comes forward again. */
+    fun closeDrawer(animate: Boolean = true) {
+        val host = drawer ?: return
+        drawer = null
+        host.zipOpen = false
+        val shown = shown()
+        val i = shown.indexOf(host)
+        val hp = slots.getOrNull(i) ?: PointF(0f, 0f)
+        for (s in shown) if (s !== host) {
+            s.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(0).setDuration(if (animate) 200 else 0)
+                .setInterpolator(EASE).withEndAction(null).start()
+        }
+        for (s in kids[host].orEmpty()) {
+            if (!animate) {
+                s.animate().cancel()
+                s.visibility = INVISIBLE
+                s.alpha = 0f
+                continue
+            }
+            s.animate().translationX(hp.x).translationY(hp.y - s.circleOffset()).scaleX(0.3f).scaleY(0.3f).alpha(0f)
+                .setStartDelay(0).setDuration(200).setInterpolator(EASE)
+                .withLayer().withEndAction { s.visibility = INVISIBLE }.start()
+        }
+    }
+
+    // endregion
 
     /** The tools in the ring now: all of them while editing, else the ones not taken out. */
     private fun shown(): List<SatelliteView> = order.filter { editing || (it !in hidden && it !in away) }.map { byKey.getValue(it) }
@@ -263,7 +382,7 @@ internal class OrbitLayout(
      * On the tight arc of a fan two neighbours' labels can land on each other: each moves aside by
      * half of what they overlap, or all of it when the other one is against the edge of the screen.
      */
-    internal fun spreadLabels(shown: List<SatelliteView>) {
+    internal fun spreadLabels(shown: List<SatelliteView>, slots: List<PointF> = this.slots) {
         for (s in shown) s.labelShift = 0f
         val gap = dp(4f)
         val edge = dp(4f)
@@ -335,7 +454,10 @@ internal class OrbitLayout(
         // The opening played backwards: the last tool out goes in first, each taking a small
         // breath outwards before it shrinks into the orb (the bounce, mirrored). Quicker than the
         // opening.
-        val going = shown().filter { it.visibility == VISIBLE }
+        val open = drawer?.let { kids[it] }.orEmpty()
+        drawer?.zipOpen = false
+        drawer = null
+        val going = (shown() + open).filter { it.visibility == VISIBLE }
         for (s in satellites) if (s.visibility == VISIBLE && s !in going) s.visibility = INVISIBLE
         going.forEachIndexed { i, s ->
             s.animate().translationX(0f).translationY(-s.circleOffset()).scaleX(0.3f).scaleY(0.3f).alpha(0f)
@@ -349,6 +471,7 @@ internal class OrbitLayout(
     // region Edit mode
 
     private fun startEditing() {
+        closeDrawer(animate = false)
         editing = true
         performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
         relayout()
@@ -549,8 +672,10 @@ internal class OrbitLayout(
             editTouch(event)
             return true
         }
-        // Taps on the transparent area around an open ring close it.
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && isOpen) onEmptyTap?.invoke()
+        // Taps on the transparent area around an open ring close it (an open drawer first).
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && isOpen) {
+            if (drawer != null) closeDrawer() else onEmptyTap?.invoke()
+        }
         return isOpen
     }
 
@@ -572,6 +697,10 @@ internal class OrbitLayout(
         const val MAX_LABEL_SHIFT_DP = 60f
         /** Arc between two tools' centres, in tool widths (room for the label pills too). */
         const val STEP = 1.42
+        /** A drawer's tools sit this many tool sizes further out than the ring. */
+        const val DRAWER_REACH = 1.3f
+        const val DIM_ALPHA = 0.3f
+        const val DIM_SCALE = 0.85f
         /** The closest a tool sits to the orb's centre (the orb, a gap and the tool). */
         const val NEAREST_DP = 86f
         val FAN_TURNS = listOf(0.0, 0.2, -0.2, 0.4, -0.4, 0.6, -0.6, 0.8, -0.8, 1.0, -1.0)
@@ -968,6 +1097,75 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
             invalidate()
         }
 
+    // region Zip (drawers only): along the top of the disc, its pull runs across as the drawer opens.
+
+    private val teeth = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2.6f)
+        pathEffect = DashPathEffect(floatArrayOf(dp(1.5f), dp(1.3f)), 0f)
+    }
+    private val rail = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1.2f)
+        pathEffect = DashPathEffect(floatArrayOf(dp(1.5f), dp(1.3f)), 0f)
+    }
+    private val pullFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pullEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.3f) }
+    private val arcBox = RectF()
+
+    /** 0 = zipped (pull on the left), 1 = open (pull on the right). */
+    private var zip = 0f
+    private var zipAnim: android.animation.ValueAnimator? = null
+
+    var zipOpen = false
+        set(value) {
+            if (field == value || !item.isDrawer) return
+            field = value
+            zipAnim?.cancel()
+            zipAnim = android.animation.ValueAnimator.ofFloat(zip, if (value) 1f else 0f).apply {
+                duration = if (value) 420 else 300
+                interpolator = if (value) OvershootInterpolator(1.4f) else android.view.animation.DecelerateInterpolator()
+                addUpdateListener { zip = it.animatedValue as Float; invalidate() }
+                start()
+            }
+        }
+
+    private fun drawZip(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val ink = if (active) Color.WHITE else item.tint
+        val from = ZIP_FROM
+        val sweep = ZIP_TO - ZIP_FROM
+        val at = from + sweep * zip.coerceIn(-0.05f, 1.05f)
+        val mid = r - dp(4f)
+        // Still zipped: the teeth from the pull to the end.
+        teeth.color = ink
+        arcBox.set(cx - mid, cy - mid, cx + mid, cy + mid)
+        if (at < ZIP_TO) canvas.drawArc(arcBox, at, ZIP_TO - at, false, teeth)
+        // Opened: two rails behind the pull.
+        if (at > from) {
+            rail.color = ink
+            val inner = mid - dp(1.8f)
+            val outer = mid + dp(1.8f)
+            arcBox.set(cx - inner, cy - inner, cx + inner, cy + inner)
+            canvas.drawArc(arcBox, from, at - from, false, rail)
+            arcBox.set(cx - outer, cy - outer, cx + outer, cy + outer)
+            canvas.drawArc(arcBox, from, at - from, false, rail)
+        }
+        // The pull: a little tab across the rim, pointing out.
+        canvas.save()
+        canvas.rotate(at + 90f, cx, cy)
+        val w = dp(4.6f)
+        arcBox.set(cx - w / 2, cy - r - dp(4f), cx + w / 2, cy - mid + dp(2.5f))
+        pullFill.color = if (active) item.tint else Chrome.surface
+        canvas.drawRoundRect(arcBox, w / 2, w / 2, pullFill)
+        pullEdge.color = ink
+        canvas.drawRoundRect(arcBox, w / 2, w / 2, pullEdge)
+        pullFill.color = ink
+        canvas.drawCircle(cx, cy - r - dp(1.2f), dp(1f), pullFill)
+        canvas.restore()
+    }
+
+    // endregion
+
     /** In edit mode: "–" takes the tool out of the ring, "+" puts it back. */
     enum class Badge { NONE, MINUS, PLUS }
 
@@ -1012,6 +1210,7 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
         val s = dp(ICON_DP)
         icon.setBounds((cx - s / 2).toInt(), (cy - s / 2).toInt(), (cx + s / 2).toInt(), (cy + s / 2).toInt())
         icon.draw(canvas)
+        if (item.isDrawer) drawZip(canvas, cx, cy, r)
         val top = cy + r - dp(4f)
         val labelX = cx + labelShift
         pillRect.set(labelX - pillHalf, top, labelX + pillHalf, top + pillH)
@@ -1033,5 +1232,8 @@ internal class SatelliteView(context: Context, val item: RingItem) : View(contex
         const val SIZE_DP = 46f
         /** The icon on that disc. */
         const val ICON_DP = 26f
+        /** The zip runs over the top of a drawer's disc, between these angles (degrees, 0 = right). */
+        private const val ZIP_FROM = 215f
+        private const val ZIP_TO = 325f
     }
 }

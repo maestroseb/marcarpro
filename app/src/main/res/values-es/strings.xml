@@ -242,4 +242,5 @@
     <string name="lock_off">Pantalla desbloqueada</string>
     <string name="timer_countdown_min">Cuenta atrás (minutos)</string>
     <string name="timer_start">Empezar</string>
+    <string name="tool_class">Aula</string>
 </resources>
