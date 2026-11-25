@@ -90,7 +90,41 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         if (mode != Mode.COUNT || paused) return@Runnable
         ended = true
         invalidate()
+        celebrate()
         onEnd()
+    }
+
+    /** The last seconds of a countdown: amber, and a soft beat each second. */
+    private val warning get() = mode == Mode.COUNT && !ended && remaining() <= WARN_MS
+
+    /** 0..1: how red the capsule is, fading after the end. */
+    private var flash = 0f
+
+    private fun beat(scale: Float, ms: Long) {
+        animate().cancel()
+        scaleX = 1f
+        scaleY = 1f
+        animate().scaleX(scale).scaleY(scale).setDuration(ms / 2)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .withEndAction { animate().scaleX(1f).scaleY(1f).setDuration(ms / 2).setInterpolator(android.view.animation.AccelerateDecelerateInterpolator()).start() }
+            .start()
+    }
+
+    /** The end: three beats and a red glow that fades, so the back row sees it too. */
+    private fun celebrate() {
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = CELEBRATE_MS
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                // Three bumps, each a little smaller, then still.
+                val bump = kotlin.math.abs(kotlin.math.sin(t * Math.PI * 3)).toFloat() * (1f - t * 0.6f)
+                scaleX = 1f + BEAT_END * bump
+                scaleY = scaleX
+                flash = 1f - t
+                invalidate()
+            }
+            start()
+        }
     }
 
     fun startWatch() = start(Mode.WATCH, 0L)
@@ -101,6 +135,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
     fun repeat() = start(Mode.COUNT, duration)
 
     private fun start(m: Mode, ms: Long) {
+        flash = 0f
         val grew = mode == Mode.NONE
         mode = m
         duration = ms
@@ -159,6 +194,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
     private val tick = object : Runnable {
         override fun run() {
             invalidate()
+            if (warning && !paused && isShown) beat(BEAT_WARN, 420L)
             if (mode == Mode.NONE || paused || ended) {
                 postDelayed(this, MINUTE_MS - System.currentTimeMillis() % MINUTE_MS + 50)
             } else {
@@ -196,10 +232,10 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         val top = (height - h) / 2
         val w = capsuleWidth
         r.set(left, top, left + w, top + h)
-        card.color = Chrome.surface
+        card.color = if (flash > 0f) ColorUtils.blendARGB(Chrome.surface, ColorUtils.blendARGB(Chrome.surface, END, 0.22f), flash) else Chrome.surface
         Chrome.shade(card, dp(8f), dp(2.5f))
         canvas.drawRoundRect(r, h / 2, h / 2, card)
-        edge.color = Chrome.hairline
+        edge.color = if (flash > 0f) ColorUtils.blendARGB(Chrome.hairline, END, flash) else Chrome.hairline
         r.inset(dp(0.5f), dp(0.5f))
         canvas.drawRoundRect(r, h / 2, h / 2, edge)
         if (pressedLook) {
@@ -217,7 +253,7 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         edge.color = Chrome.hairline
         val sx = left + timeWidth
         canvas.drawLine(sx, cy - dp(11f), sx, cy + dp(11f), edge)
-        val color = if (ended) END else if (paused) Chrome.hint else ACCENT
+        val color = if (ended) END else if (paused) Chrome.hint else if (warning) WARN else ACCENT
         val ix = sx + pad + dp(ICON_DP) / 2
         glyph.color = color
         if (mode == Mode.WATCH) drawWatch(canvas, ix, cy) else drawRing(canvas, ix, cy, (remaining().toFloat() / duration).coerceIn(0f, 1f))
@@ -261,6 +297,11 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         /** The pen's blue: the one accent on the whiteboard's controls. */
         const val ACCENT = 0xFF3B5BDB.toInt()
         const val END = 0xFFD9363E.toInt()
+        const val WARN = 0xFFE07B00.toInt()
+        private const val WARN_MS = 10_000L
+        private const val BEAT_WARN = 1.05f
+        private const val BEAT_END = 0.07f
+        private const val CELEBRATE_MS = 1600L
     }
 }
 
@@ -271,7 +312,10 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
 internal class TimerCardView(context: Context, private val onOutside: () -> Unit, private val onDone: () -> Unit) : View(context) {
     var clock: ClockView? = null
 
-    private enum class Act { WATCH, C1, C3, C5, C10, C15, PAUSE, REPEAT, REMOVE }
+    private enum class Act { WATCH, C1, C3, C5, C10, C15, MINUS, PLUS, GO, PAUSE, REPEAT, REMOVE }
+
+    /** The countdown on the stepper, in minutes: the last one chosen there (5 at first). */
+    private var custom = 5
 
     private val margin = dp(10f)
     private val card = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -309,6 +353,12 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
             val gap = dp(6f)
             val w = (rr - l - gap * (acts.size - 1)) / acts.size
             acts.forEachIndexed { i, a -> parts += a to RectF(l + i * (w + gap), y, l + i * (w + gap) + w, y + dp(CHIP_DP)) }
+            y += dp(CHIP_DP + STEP_GAP_DP)
+            val sq = dp(STEP_DP)
+            parts += Act.MINUS to RectF(l, y, l + sq, y + sq)
+            val goW = dp(GO_DP)
+            parts += Act.GO to RectF(rr - goW, y, rr, y + sq)
+            parts += Act.PLUS to RectF(rr - goW - gap - sq, y, rr - goW - gap, y + sq)
         } else {
             val mid = (l + rr) / 2
             val first = if (clock?.ended == true) Act.REPEAT else Act.PAUSE
@@ -320,7 +370,7 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val body = if (idle) ROW_DP + LABEL_DP + CHIP_DP else ROW_DP
+        val body = if (idle) ROW_DP + LABEL_DP + CHIP_DP + STEP_GAP_DP + STEP_DP else ROW_DP
         setMeasuredDimension(dpi(WIDTH_DP), (2 * margin + dp(2 * PAD_DP + HEAD_DP + body)).toInt())
     }
 
@@ -343,13 +393,39 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
         if (idle) {
             small.color = Chrome.hint
             val labelY = parts.first { it.first == Act.WATCH }.second.bottom + dp(LABEL_DP) - dp(9f)
-            canvas.drawText(context.getString(R.string.timer_countdown), margin + dp(PAD_DP + 4f), labelY, small)
+            canvas.drawText(context.getString(R.string.timer_countdown_min), margin + dp(PAD_DP + 4f), labelY, small)
         }
         for ((a, box) in parts) drawPart(canvas, a, box)
+        if (idle) {
+            // The stepper's value, between − and +.
+            val minus = parts.first { it.first == Act.MINUS }.second
+            val plus = parts.first { it.first == Act.PLUS }.second
+            chipText.color = Chrome.text
+            canvas.drawText("$custom min", (minus.right + plus.left) / 2, minus.centerY() - (chipText.descent() + chipText.ascent()) / 2, chipText)
+        }
     }
 
     private fun drawPart(canvas: Canvas, a: Act, box: RectF) {
         val corner = dp(12f)
+        if (a == Act.GO) {
+            fill.color = if (pressed == a) ColorUtils.blendARGB(ClockView.ACCENT, android.graphics.Color.BLACK, 0.15f) else ClockView.ACCENT
+            canvas.drawRoundRect(box, box.height() / 2, box.height() / 2, fill)
+            big.color = android.graphics.Color.WHITE
+            val t = context.getString(R.string.timer_start)
+            canvas.drawText(t, box.centerX() - big.measureText(t) / 2, box.centerY() - (big.descent() + big.ascent()) / 2, big)
+            return
+        }
+        if (a == Act.MINUS || a == Act.PLUS) {
+            fill.color = if (pressed == a) Chrome.pressed else Chrome.surface
+            canvas.drawCircle(box.centerX(), box.centerY(), box.height() / 2, fill)
+            edge.color = Chrome.hairline
+            canvas.drawCircle(box.centerX(), box.centerY(), box.height() / 2 - dp(0.5f), edge)
+            icon.color = Chrome.icon
+            val k = dp(7f)
+            canvas.drawLine(box.centerX() - k, box.centerY(), box.centerX() + k, box.centerY(), icon)
+            if (a == Act.PLUS) canvas.drawLine(box.centerX(), box.centerY() - k, box.centerX(), box.centerY() + k, icon)
+            return
+        }
         val chip = a in CHIPS
         fill.color = if (pressed == a) Chrome.pressed else Chrome.surface
         canvas.drawRoundRect(box, if (chip) box.height() / 2 else corner, if (chip) box.height() / 2 else corner, fill)
@@ -357,8 +433,7 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
         canvas.drawRoundRect(box, if (chip) box.height() / 2 else corner, if (chip) box.height() / 2 else corner, edge)
         if (chip) {
             chipText.color = Chrome.text
-            val label = when (a) { Act.C1 -> "1"; Act.C3 -> "3"; Act.C5 -> "5"; Act.C10 -> "10"; else -> "15" } +
-                if (a == Act.C1) " min" else ""
+            val label = when (a) { Act.C1 -> "1"; Act.C3 -> "3"; Act.C5 -> "5"; Act.C10 -> "10"; else -> "15" }
             canvas.drawText(label, box.centerX(), box.centerY() - (chipText.descent() + chipText.ascent()) / 2, chipText)
             return
         }
@@ -393,10 +468,14 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
                 canvas.drawLine(cx + 3.5f * u, cy - 7 * u, cx + 3.5f * u, cy + 7 * u, icon)
             }
             Act.REPEAT -> {
-                r.set(cx - 7 * u, cy - 7 * u, cx + 7 * u, cy + 7 * u)
-                canvas.drawArc(r, -60f, 300f, false, icon)
-                canvas.drawLine(cx + 3.5f * u, cy - 6 * u, cx + 7.5f * u, cy - 7.5f * u, icon)
-                canvas.drawLine(cx + 3.5f * u, cy - 6 * u, cx + 4.5f * u, cy - 10.5f * u, icon)
+                // An open circle going round clockwise, its arrowhead at the top.
+                val rad = 7 * u
+                r.set(cx - rad, cy - rad, cx + rad, cy + rad)
+                canvas.drawArc(r, -45f, 285f, false, icon)
+                val ex = cx
+                val ey = cy - rad
+                canvas.drawLine(ex, ey, ex - 3.5f * u, ey - 3.5f * u, icon)
+                canvas.drawLine(ex, ey, ex - 3.5f * u, ey + 3.5f * u, icon)
             }
             else -> {
                 canvas.drawLine(cx - 6 * u, cy - 6 * u, cx + 6 * u, cy + 6 * u, icon)
@@ -441,6 +520,12 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
             Act.C5 -> c.startCount(5)
             Act.C10 -> c.startCount(10)
             Act.C15 -> c.startCount(15)
+            Act.MINUS, Act.PLUS -> {
+                custom = step(custom, if (a == Act.PLUS) 1 else -1)
+                invalidate()
+                return
+            }
+            Act.GO -> c.startCount(custom)
             Act.PAUSE -> { c.togglePause(); invalidate(); return }
             Act.REPEAT -> c.repeat()
             Act.REMOVE -> c.stop()
@@ -448,7 +533,24 @@ internal class TimerCardView(context: Context, private val onOutside: () -> Unit
         onDone()
     }
 
+    /** Comes in with a small rise and fade, from the clock's side. */
+    fun enter(fromAbove: Boolean) {
+        alpha = 0f
+        translationY = dp(if (fromAbove) -8f else 8f)
+        animate().alpha(1f).translationY(0f).setDuration(180)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+    }
+
     private companion object {
+        /** One minute at a time up to 10, then five at a time (12 → 15 → 20…), 1 to 90. */
+        fun step(m: Int, dir: Int): Int = if (dir > 0) {
+            if (m < 10) m + 1 else (m / 5 + 1) * 5
+        } else {
+            if (m <= 10) m - 1 else ((m - 1) / 5) * 5
+        }.coerceIn(1, 90)
+        const val STEP_DP = 48f
+        const val STEP_GAP_DP = 10f
+        const val GO_DP = 104f
         val CHIPS = setOf(Act.C1, Act.C3, Act.C5, Act.C10, Act.C15)
         const val WIDTH_DP = 300f
         const val PAD_DP = 12f

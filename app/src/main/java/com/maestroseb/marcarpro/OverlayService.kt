@@ -1667,6 +1667,7 @@ class OverlayService : Service() {
         val below = b.bottom - dpi(8f) - dpi(10f) + dpi(6f)
         timerParams.y = if (below + v.measuredHeight <= screen.y) below else (b.top + dpi(8f) + dpi(10f) - dpi(6f) - v.measuredHeight).coerceAtLeast(0)
         unpark(v, timerParams)
+        v.enter(fromAbove = timerParams.y >= b.bottom - dpi(20f))
         panel?.setArea(PanelTouch.AREA_TIMER, Rect(timerParams.x, timerParams.y, timerParams.x + v.measuredWidth, timerParams.y + v.measuredHeight))
     }
 

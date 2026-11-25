@@ -240,4 +240,6 @@
     <string name="lock_on">Pantalla bloqueada · mantén pulsado el candado para abrir</string>
     <string name="lock_hold">Mantén pulsado para desbloquear</string>
     <string name="lock_off">Pantalla desbloqueada</string>
+    <string name="timer_countdown_min">Cuenta atrás (minutos)</string>
+    <string name="timer_start">Empezar</string>
 </resources>

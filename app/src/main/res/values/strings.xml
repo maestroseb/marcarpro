@@ -237,4 +237,6 @@
     <string name="lock_on">Screen locked · hold the padlock to unlock</string>
     <string name="lock_hold">Hold to unlock</string>
     <string name="lock_off">Screen unlocked</string>
+    <string name="timer_countdown_min">Countdown (minutes)</string>
+    <string name="timer_start">Start</string>
 </resources>
