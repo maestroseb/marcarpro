@@ -15,6 +15,7 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -32,6 +33,8 @@ import kotlin.math.sqrt
  *  - The pencil's point (the ring): turning it round draws, the swept angle showing. A quick move
  *    is filled in along the circle, never cut across. On letting go the arc becomes ink (the pen's
  *    colour and thickness, one undo step); while drawing it is only painted here.
+ *  - The two small arrowheads beside the hinge (⇕, quiet, teal while used): up makes the whole
+ *    compass bigger, legs and all, for large circles; down smaller. The opening scales with it.
  *  - Two fingers on it open or close it; ✕ (beyond the hinge) takes it away.
  * The view is a square as big as the widest circle around the needle, which sits at its centre: it
  * moves by its translation only, so it is never repainted for that (see the protractor).
@@ -47,15 +50,17 @@ internal class CompassView(
     private val inkWidth: () -> Float,
 ) : View(context), MathTool {
     override val view: View get() = this
-    private enum class Zone { NONE, MOVE, OPEN, DRAW, CLOSE }
+    private enum class Zone { NONE, MOVE, OPEN, DRAW, CLOSE, SIZE }
 
     private val pxPerCm = boardPxPerCm(context)
-    private val leg = dp(LEG_DP)
-    private val maxR = 2 * leg * 0.97f
+    /** How big it is (its legs), changed with the arrowheads beside the hinge. */
+    private var scale = 1f
+    private val leg get() = dp(LEG_DP) * scale
+    private val maxR get() = 2 * leg * 0.97f
     private val minR = max(pxPerCm, dp(24f))
     private val pad = dp(PAD_DP)
-    /** The needle: the view's centre. */
-    private val c0 = pad + maxR
+    /** The needle: the view's centre; the view is as big as the widest circle of the biggest compass. */
+    private val c0 = pad + 2 * dp(LEG_DP) * MAX_SCALE * 0.97f
     private var radius = (pxPerCm * START_CM).coerceIn(minR, maxR)
     /** Which way the pencil is from the needle (radians, screen: y down). */
     private var angle = START_ANGLE
@@ -118,11 +123,16 @@ internal class CompassView(
 
     // region Where it is held
 
+    // The arrowheads that size it: beside the hinge, on the side away from the pencil, upright.
+    private val sizeX get() = hx + (if (cos(angle) > 0) -1 else 1) * dp(SIZE_OFF_DP)
+    private val sizeY get() = hy
+
     private val closeX get() = hx + nx * dp(CLOSE_OFF_DP)
     private val closeY get() = hy + ny * dp(CLOSE_OFF_DP)
 
     private fun zoneAt(x: Float, y: Float): Zone = when {
         hypot(x - closeX, y - closeY) <= dp(22f) -> Zone.CLOSE
+        abs(x - sizeX) <= dp(16f) && abs(y - sizeY) <= dp(30f) -> Zone.SIZE
         hypot(x - px, y - py) <= dp(TIP_GRAB_DP) -> Zone.DRAW
         hypot(x - hx, y - hy) <= dp(26f) -> Zone.MOVE
         segment(x, y, hx, hy, c0, c0) <= dp(18f) -> Zone.MOVE
@@ -219,6 +229,16 @@ internal class CompassView(
         canvas.drawCircle(hx, hy, dp(3.8f), fill)
         fill.color = OrbStyle.TEAL
         canvas.drawCircle(c0, c0, dp(3f), fill)
+        // ⇕: two small arrowheads, no plate; teal while in use.
+        fill.color = if (zone == Zone.SIZE) OrbStyle.TEAL else ColorUtils.setAlphaComponent(Chrome.icon, 0x8C)
+        for (dir in intArrayOf(-1, 1)) {
+            path.rewind()
+            path.moveTo(sizeX, sizeY + dir * dp(13f))
+            path.lineTo(sizeX + dp(5f), sizeY + dir * dp(6f))
+            path.lineTo(sizeX - dp(5f), sizeY + dir * dp(6f))
+            path.close()
+            canvas.drawPath(path, fill)
+        }
 
         // ✕, beyond the hinge.
         fill.color = Chrome.surface
@@ -231,7 +251,12 @@ internal class CompassView(
         canvas.drawLine(closeX - g, closeY - g, closeX + g, closeY + g, glyph)
         canvas.drawLine(closeX + g, closeY - g, closeX - g, closeY + g, glyph)
 
-        label?.let { pill(canvas, it, hx.coerceIn(dp(80f), width - dp(80f)), max(hy - dp(48f), dp(24f))) }
+        // The value, beyond ✕ on the same line out from the hinge, so it never covers it.
+        label?.let {
+            val lx = closeX + nx * dp(LABEL_OFF_DP)
+            val ly = closeY + ny * dp(LABEL_OFF_DP)
+            pill(canvas, it, lx.coerceIn(dp(80f), width - dp(80f)), ly.coerceIn(dp(24f), height - dp(24f)))
+        }
     }
 
     // A leg: a quad from ([ax], [ay]) [w0] wide to ([bx], [by]) [w1] wide.
@@ -274,6 +299,8 @@ internal class CompassView(
     private var fromAngle = 0f
     private var fromRadius = 0f
     private var fromTurn = 0f
+    private var fromScale = 1f
+    private var fromRawY = 0f
     private var pinching = false
     private var pinchDist = 0f
 
@@ -326,6 +353,12 @@ internal class CompassView(
                         fromTurn = angle
                         show(radiusLabel())
                     }
+                    Zone.SIZE -> {
+                        fromScale = scale
+                        fromRadius = radius
+                        fromRawY = e.rawY
+                        show(radiusLabel())
+                    }
                     Zone.DRAW -> {
                         count = 0
                         swept = 0f
@@ -348,6 +381,14 @@ internal class CompassView(
                     translationY += e.rawY - lastY
                     lastX = e.rawX
                     lastY = e.rawY
+                }
+                zone == Zone.SIZE -> {
+                    // Up grows, down shrinks: the whole compass, the opening with it.
+                    scale = (fromScale * exp((fromRawY - e.rawY) / dp(SIZE_DRAG_DP))).coerceIn(MIN_SCALE, MAX_SCALE)
+                    radius = (fromRadius * scale / fromScale).coerceIn(minR, maxR)
+                    geometry()
+                    show(radiusLabel())
+                    invalidate()
                 }
                 zone == Zone.OPEN -> {
                     radius = (fromRadius + hypot(e.x - c0, e.y - c0) - fromDist).coerceIn(minR, maxR)
@@ -386,7 +427,7 @@ internal class CompassView(
                 pinchEnd()
                 if (zone == Zone.CLOSE && zoneAt(e.x, e.y) == Zone.CLOSE) onClose()
                 if (zone == Zone.DRAW) commit()
-                if (zone == Zone.OPEN || zone == Zone.DRAW) settleLabel()
+                if (zone == Zone.OPEN || zone == Zone.DRAW || zone == Zone.SIZE) settleLabel()
                 zone = Zone.NONE
                 invalidate()
             }
@@ -419,7 +460,13 @@ internal class CompassView(
     // endregion
 
     private companion object {
-        const val LEG_DP = 160f
+        const val LEG_DP = 130f
+        const val MIN_SCALE = 0.6f
+        const val MAX_SCALE = 2.6f
+        const val SIZE_OFF_DP = 24f
+        const val LABEL_OFF_DP = 46f
+        /** Dragging this far up makes it e (2.7) times bigger. */
+        const val SIZE_DRAG_DP = 140f
         const val PAD_DP = 40f
         const val START_CM = 5f
         const val START_ANGLE = -0.35f
