@@ -70,8 +70,8 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     private val shown get() = if (fromLeft) 180 - angle else angle
 
     init {
-        // Drawn once into its own layer; moving and turning it only re-composes that layer.
-        setLayerType(LAYER_TYPE_HARDWARE, null)
+        // No layer of its own: moving and turning only replay its drawing (the board isn't touched),
+        // and on the ViewSonic a layer clipped it at the old size after resizing.
         pivotX = ox
         pivotY = oy
         contentDescription = context.getString(R.string.tool_protractor)
@@ -88,11 +88,11 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         rotation = 0f
     }
 
-    // Chips under the band: close (left), turn (middle), the other way (right).
+    // Chips under the band: close (left), the other way (middle), turn (right).
     private val chipY get() = oy + band + dp(CHIP_GAP_DP) + dp(CHIP_DP)
-    private val turnX get() = ox
+    private val flipX get() = ox
     private val closeX get() = ox - radius + dp(CHIP_DP) + dp(6f)
-    private val flipX get() = ox + radius - dp(CHIP_DP) - dp(6f)
+    private val turnX get() = ox + radius - dp(CHIP_DP) - dp(6f)
     private fun knobAt(): Pair<Float, Float> {
         val a = Math.toRadians(angle.toDouble())
         val k = radius + dp(KNOB_OUT_DP)
@@ -130,6 +130,14 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         matrix.mapPoints(out)
         out[0] += left
         out[1] += top
+    }
+
+    /** Whether a point of the board lies on the sheet itself (for two fingers anywhere on it). */
+    fun onSheet(x: Float, y: Float): Boolean {
+        toLocal(x, y)
+        val lx = pt[0]
+        val ly = pt[1]
+        return if (ly <= oy) hypot(lx - ox, ly - oy) <= radius else lx in (ox - radius)..(ox + radius) && ly <= oy + band
     }
 
     /** Whether a touch at ([x], [y]) in the board's coordinates lands where this tool is held. */
@@ -247,24 +255,41 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         canvas.drawText(label, ox, py - (readout.descent() + readout.ascent()) / 2, readout)
         canvas.restore()
 
-        // Close, turn and the other way.
+        // Close, the other way and turn.
         glyph.color = Chrome.icon
-        drawChip(canvas, turnX, chipY, dp(CHIP_DP))
-        val t = dp(8f)
-        r.set(turnX - t, chipY - t, turnX + t, chipY + t)
-        canvas.drawArc(r, 200f, 250f, false, glyph)
-        canvas.drawLine(turnX + t * 0.2f, chipY - t * 1.25f, turnX - t * 0.35f, chipY - t * 1.0f, glyph)
         drawChip(canvas, closeX, chipY, dp(CHIP_DP))
         val x = dp(6f)
         canvas.drawLine(closeX - x, chipY - x, closeX + x, chipY + x, glyph)
         canvas.drawLine(closeX + x, chipY - x, closeX - x, chipY + x, glyph)
+        // ⇄: two arrows, each with its whole head.
         drawChip(canvas, flipX, chipY, dp(CHIP_DP))
-        val f = dp(7f)
+        val f = dp(7.5f)
         val h = dp(3.5f)
+        val head = dp(3.5f)
         canvas.drawLine(flipX - f, chipY - h, flipX + f, chipY - h, glyph)
-        canvas.drawLine(flipX + f, chipY - h, flipX + f - h, chipY - 2 * h, glyph)
+        canvas.drawLine(flipX + f, chipY - h, flipX + f - head, chipY - h - head, glyph)
+        canvas.drawLine(flipX + f, chipY - h, flipX + f - head, chipY - h + head, glyph)
         canvas.drawLine(flipX + f, chipY + h, flipX - f, chipY + h, glyph)
-        canvas.drawLine(flipX - f, chipY + h, flipX - f + h, chipY + 2 * h, glyph)
+        canvas.drawLine(flipX - f, chipY + h, flipX - f + head, chipY + h - head, glyph)
+        canvas.drawLine(flipX - f, chipY + h, flipX - f + head, chipY + h + head, glyph)
+        // ↻: an open circle going clockwise, its head along the way it turns.
+        drawChip(canvas, turnX, chipY, dp(CHIP_DP))
+        val t = dp(7.5f)
+        r.set(turnX - t, chipY - t, turnX + t, chipY + t)
+        val start = -50f
+        val sweep = 290f
+        canvas.drawArc(r, start, sweep, false, glyph)
+        val endA = Math.toRadians((start + sweep).toDouble())
+        val ex = turnX + (cos(endA) * t).toFloat()
+        val ey = chipY + (sin(endA) * t).toFloat()
+        // The way it goes at the end (clockwise on screen), and the two strokes of the head behind it.
+        val dx = -sin(endA).toFloat()
+        val dy = cos(endA).toFloat()
+        val hl = dp(4.5f)
+        for (side in floatArrayOf(-1f, 1f)) {
+            val a2 = atan2(dy.toDouble(), dx.toDouble()) + Math.PI + side * Math.PI / 4
+            canvas.drawLine(ex, ey, ex + (cos(a2) * hl).toFloat(), ey + (sin(a2) * hl).toFloat(), glyph)
+        }
     }
 
     private fun drawChip(canvas: Canvas, cx: Float, cy: Float, rad: Float) {
@@ -287,7 +312,6 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     // Two fingers: resize and turn together.
     private var pinching = false
     private var pinchDist = 0f
-    private var pinchAngle = 0f
     private var sizeFrom = 1f
 
     /** The centre point on screen, for turning around it. */
@@ -309,22 +333,39 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         }
     }
 
-    /** Bakes the size reached with two fingers into the drawing (sharp again), the centre in place. */
-    private fun settleSize() {
-        val now = (sizeFrom * scaleX).coerceIn(MIN_SIZE, MAX_SIZE)
-        toBoard(ox, oy, pt)
-        val cx = pt[0]
-        val cy = pt[1]
-        scaleX = 1f
-        scaleY = 1f
-        size = now
+    /** Draws it at [next] size (always sharp), its centre point staying where it is. */
+    private fun resizeTo(next: Float) {
+        val s = next.coerceIn(MIN_SIZE, MAX_SIZE)
+        if (s == size) return
+        // The centre is the pivot: on the board it is at left + translation + pivot, turned or not.
+        val vx = left + translationX + pivotX
+        val vy = top + translationY + pivotY
+        size = s
         measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
-        layout(0, 0, measuredWidth, measuredHeight)
+        layout(left, top, left + measuredWidth, top + measuredHeight)
         pivotX = ox
         pivotY = oy
-        translationX = cx - ox
-        translationY = cy - oy
+        translationX = vx - left - ox
+        translationY = vy - top - oy
+        requestLayout()
         invalidate()
+    }
+
+    // Two fingers, in the board's coordinates (also when they started on the sheet but off the plate,
+    // and the board handed them over): only the size changes.
+
+    fun pinchStart(ax: Float, ay: Float, bx: Float, by: Float) {
+        pinching = true
+        pinchDist = hypot(bx - ax, by - ay).coerceAtLeast(1f)
+        sizeFrom = size
+    }
+
+    fun pinchMove(ax: Float, ay: Float, bx: Float, by: Float) {
+        if (pinching) resizeTo(sizeFrom * hypot(bx - ax, by - ay) / pinchDist)
+    }
+
+    fun pinchEnd() {
+        pinching = false
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -344,20 +385,11 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN -> if (zone == Zone.MOVE && e.pointerCount == 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                pinching = true
-                pinchDist = hypot(e.getRawX(1) - e.getRawX(0), e.getRawY(1) - e.getRawY(0)).coerceAtLeast(1f)
-                pinchAngle = Math.toDegrees(atan2((e.getRawY(1) - e.getRawY(0)).toDouble(), (e.getRawX(1) - e.getRawX(0)).toDouble())).toFloat()
-                sizeFrom = size
-                rotationFrom = rotation
+                pinchStart(e.getRawX(0), e.getRawY(0), e.getRawX(1), e.getRawY(1))
             }
             MotionEvent.ACTION_MOVE -> when {
                 pinching && e.pointerCount >= 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                    val d = hypot(e.getRawX(1) - e.getRawX(0), e.getRawY(1) - e.getRawY(0))
-                    val k = ((sizeFrom * d / pinchDist).coerceIn(MIN_SIZE, MAX_SIZE)) / sizeFrom
-                    scaleX = k
-                    scaleY = k
-                    val ang = Math.toDegrees(atan2((e.getRawY(1) - e.getRawY(0)).toDouble(), (e.getRawX(1) - e.getRawX(0)).toDouble())).toFloat()
-                    turnTo(rotationFrom + (ang - pinchAngle))
+                    pinchMove(e.getRawX(0), e.getRawY(0), e.getRawX(1), e.getRawY(1))
                 }
                 zone == Zone.MOVE && !pinching -> {
                     translationX += e.rawX - lastX
@@ -382,14 +414,12 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
                 else -> Unit
             }
             MotionEvent.ACTION_POINTER_UP -> if (pinching) {
-                pinching = false
-                settleSize()
-                // The finger left keeps moving it from where it is now.
+                pinchEnd()
+                // The finger left does nothing more (it would jump).
                 zone = Zone.NONE
             }
             MotionEvent.ACTION_UP -> {
-                if (pinching) settleSize()
-                pinching = false
+                pinchEnd()
                 when (zone) {
                     Zone.CLOSE -> if (zoneAt(e.x, e.y) == Zone.CLOSE) onClose()
                     Zone.FLIP -> if (zoneAt(e.x, e.y) == Zone.FLIP) {
@@ -401,8 +431,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
                 zone = Zone.NONE
             }
             MotionEvent.ACTION_CANCEL -> {
-                if (pinching) settleSize()
-                pinching = false
+                pinchEnd()
                 zone = Zone.NONE
             }
         }

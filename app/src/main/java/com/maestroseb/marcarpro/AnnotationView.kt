@@ -737,6 +737,40 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         protractor = v
     }
 
+    /** Two fingers on the protractor's sheet that the board got (the first one off its plate). */
+    private var pinchingTool = false
+
+    /**
+     * Two fingers that both land on the protractor are its own, wherever they started: the board
+     * lets go of them (its stroke or zoom cancelled) and they resize it. Otherwise the whiteboard
+     * zoomed behind it, "through" it.
+     */
+    private fun toolPinch(e: MotionEvent): Boolean {
+        val p = protractor ?: return false.also { pinchingTool = false }
+        if (pinchingTool) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_MOVE -> if (e.pointerCount >= 2) p.pinchMove(e.getX(0), e.getY(0), e.getX(1), e.getY(1))
+                MotionEvent.ACTION_POINTER_UP -> p.pinchEnd()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    p.pinchEnd()
+                    pinchingTool = false
+                }
+            }
+            return true
+        }
+        if (e.actionMasked == MotionEvent.ACTION_POINTER_DOWN && e.pointerCount == 2 &&
+            p.onSheet(e.getX(0), e.getY(0)) && p.onSheet(e.getX(1), e.getY(1))
+        ) {
+            val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+            onInk(cancel)
+            cancel.recycle()
+            p.pinchStart(e.getX(0), e.getY(0), e.getX(1), e.getY(1))
+            pinchingTool = true
+            return true
+        }
+        return false
+    }
+
     // endregion
 
     /** Every touch is the board's (the wet cells only draw), unless it starts where a tool is held. */
@@ -1754,6 +1788,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         // Ink still gliding after a page scroll lands at once: a touch maps through the camera.
         if (e.actionMasked == MotionEvent.ACTION_DOWN) endGlide()
         if (!annotating) return false
+        if (toolPinch(e)) return true
         // A touch that starts on the version mark is a tap on it, unless it moves off as a stroke.
         val held = markDown
         if (held != null) {
