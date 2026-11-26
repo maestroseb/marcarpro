@@ -35,9 +35,13 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     private val radius get() = dp(RADIUS_DP) * size
     private val band = dp(BAND_DP)
     private val pad = dp(PAD_DP)
-    /** The centre point (the vertex of the angle), in this view. */
-    private val ox get() = pad + radius
-    private val oy get() = pad + radius
+    /**
+     * The centre point (the vertex of the angle), in this view. The view is always as big as the
+     * largest protractor and only its drawing changes size: resizing the view itself left it
+     * clipped at its old size on the ViewSonic. Its empty part lets touches through to the board.
+     */
+    private val ox = pad + dp(RADIUS_DP) * MAX_SIZE
+    private val oy = ox
 
     private val body = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.2f) }
@@ -78,7 +82,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension((2 * (pad + radius)).toInt(), (oy + band + dp(CHIP_GAP_DP) + 2 * dp(CHIP_DP) + pad).toInt())
+        setMeasuredDimension((2 * ox).toInt(), (oy + band + dp(CHIP_GAP_DP) + 2 * dp(CHIP_DP) + pad).toInt())
     }
 
     /** First placed in the middle of a [w]×[h] board, a little low. */
@@ -333,21 +337,11 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         }
     }
 
-    /** Draws it at [next] size (always sharp), its centre point staying where it is. */
+    /** Draws it at [next] size (always sharp); its centre point doesn't move. */
     private fun resizeTo(next: Float) {
         val s = next.coerceIn(MIN_SIZE, MAX_SIZE)
         if (s == size) return
-        // The centre is the pivot: on the board it is at left + translation + pivot, turned or not.
-        val vx = left + translationX + pivotX
-        val vy = top + translationY + pivotY
         size = s
-        measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
-        layout(left, top, left + measuredWidth, top + measuredHeight)
-        pivotX = ox
-        pivotY = oy
-        translationX = vx - left - ox
-        translationY = vy - top - oy
-        requestLayout()
         invalidate()
     }
 
