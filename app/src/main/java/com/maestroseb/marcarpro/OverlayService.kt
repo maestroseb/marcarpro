@@ -1130,6 +1130,13 @@ class OverlayService : Service() {
 
     /** A new text where the teacher tapped: the first line's middle on the tap. */
     private fun newText(x: Float, y: Float) {
+        // On a school ruling the text is in the school letter, as big as the rows, its lines on them.
+        canvas?.ruling()?.let { r ->
+            // The tap picks the row: the first line goes on the one nearest to it.
+            val first = TextBody(this, "x", r.letterSize, r.period).firstBaseline
+            startTyping(x, y - first, "", prefs.colorFor(Tool.PEN), r.letterSize, -1, r.period, r::lineNear)
+            return
+        }
         val i = prefs.textSize
         val size = dp(TextEditor.SIZES_DP[i])
         startTyping(x, y - size * 0.6f, "", prefs.colorFor(Tool.PEN), size, i)
@@ -1137,19 +1144,22 @@ class OverlayService : Service() {
 
     private fun editText(s: Stroke) {
         val ink = canvas ?: return
-        val (x, y, size) = ink.textOnScreen(s)
+        val (x, y, size, period) = ink.textOnScreen(s)
         ink.beginTextEdit(s)
         textInHand = s
-        startTyping(x, y, s.text.orEmpty(), s.color, size, TextEditor.SIZES_DP.indexOfFirst { dp(it) == size })
+        // A text on the ruling keeps to it while the board still has those rows.
+        val rows = ink.ruling()?.takeIf { period > 0f && abs(it.period - period) < 1f }
+        val index = if (period > 0f) -1 else TextEditor.SIZES_DP.indexOfFirst { dp(it) == size }
+        startTyping(x, y, s.text.orEmpty(), s.color, size, index, period, rows?.let { it::lineNear })
     }
 
-    private fun startTyping(x: Float, y: Float, text: String, color: Int, size: Float, sizeIndex: Int) {
+    private fun startTyping(x: Float, y: Float, text: String, color: Int, size: Float, sizeIndex: Int, period: Float = 0f, snap: ((Float) -> Float)? = null) {
         lastActivity = SystemClock.uptimeMillis()
         hidePalette()
         closeRing()
         closeColors()
         canvas?.typing = true
-        textEditor().open(x, y, text, color, size, sizeIndex)
+        textEditor().open(x, y, text, color, size, sizeIndex, period, snap)
     }
 
     private fun onTextDone(d: TextEditor.Draft?) {
@@ -1160,8 +1170,8 @@ class OverlayService : Service() {
         val s = textInHand
         textInHand = null
         when {
-            s != null -> ink.endTextEdit(s, d?.text, d?.color ?: s.color, d?.size ?: 0f, d?.x ?: 0f, d?.y ?: 0f)
-            d != null && d.text.isNotEmpty() -> ink.addText(d.text, d.color, d.size, d.x, d.y)
+            s != null -> ink.endTextEdit(s, d?.text, d?.color ?: s.color, d?.size ?: 0f, d?.x ?: 0f, d?.y ?: 0f, d?.period ?: 0f)
+            d != null && d.text.isNotEmpty() -> ink.addText(d.text, d.color, d.size, d.x, d.y, d.period)
         }
     }
 

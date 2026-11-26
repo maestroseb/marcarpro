@@ -42,19 +42,53 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
-/** A typed text laid out at letter size [size]: one line per line typed, never wrapped. */
-internal class TextBody(context: Context, text: String, size: Float) {
+/**
+ * A typed text laid out at letter size [size]: one line per line typed. With a [period] it is a text
+ * on the school ruling: in the school letter, its lines exactly [period] apart (one writing row to
+ * the next) and, with a [wrap] width, a word that doesn't fit goes whole to the next row.
+ *
+ * [layout] may be made at a slightly bigger [scale] than the text shows, so that the rows' distance
+ * is a whole number of pixels: a layout places its lines at whole pixels, and rounding each row
+ * would drift off the ruling line by line. [width] and [height] are the text's real size.
+ */
+internal class TextBody(context: Context, text: String, size: Float, val period: Float = 0f, wrap: Float = 0f) {
+    val school = period > 0f
+    val scale = if (school) ceil(period) / period else 1f
     val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-        typeface = Fonts.regular(context)
-        textSize = size
+        typeface = if (school) Fonts.school(context) else Fonts.regular(context)
+        textSize = size * scale
     }
-    val layout: StaticLayout = StaticLayout.Builder
-        .obtain(text, 0, text.length, paint, ceil(StaticLayout.getDesiredWidth(text, paint)).toInt() + 2)
-        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-        .setIncludePad(false)
-        .build()
-    val width get() = layout.width.toFloat()
-    val height get() = layout.height.toFloat()
+    val layout: StaticLayout = run {
+        val wanted = if (school && wrap > 0f) (wrap * scale).toInt().coerceAtLeast(1) else ceil(StaticLayout.getDesiredWidth(text, paint)).toInt() + 2
+        val first = build(text, wanted)
+        // Wrapped: only as wide as its longest line.
+        if (school && wrap > 0f) build(text, min(wanted, ceil((0 until first.lineCount).maxOfOrNull { first.getLineWidth(it) } ?: 0f).toInt() + 2)) else first
+    }
+
+    private fun build(text: String, width: Int): StaticLayout {
+        val b = StaticLayout.Builder.obtain(text, 0, text.length, paint, max(1, width))
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setIncludePad(false)
+        if (school) {
+            val fm = paint.fontMetricsInt
+            b.setLineSpacing(ceil(period) - (fm.descent - fm.ascent), 1f)
+            b.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+            b.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) b.setUseLineSpacingFromFallbacks(false)
+        }
+        return b.build()
+    }
+
+    val width get() = layout.width / scale
+    val height get() = layout.height / scale
+
+    /** Where the first line sits, below the text's top. */
+    val firstBaseline get() = layout.getLineBaseline(0) / scale
+
+    /** The text as laid out: each wrapped line ended by a line break, so it keeps its rows when saved. */
+    fun lines(): String = (0 until layout.lineCount).joinToString("\n") {
+        layout.text.subSequence(layout.getLineStart(it), layout.getLineEnd(it)).toString().trimEnd('\n', ' ')
+    }
 }
 
 /**
@@ -83,7 +117,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     private val prefs = Prefs(context)
 
     /** What was typed: [text] goes with its top left corner at ([x], [y]) on screen. */
-    class Draft(val text: String, val color: Int, val size: Float, val sizeIndex: Int, val x: Float, val y: Float)
+    class Draft(val text: String, val color: Int, val size: Float, val sizeIndex: Int, val x: Float, val y: Float, val period: Float = 0f)
 
     /** Null when cancelled. */
     var onDone: ((Draft?) -> Unit)? = null
@@ -127,6 +161,12 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
 
     private var x = 0f
     private var y = 0f
+
+    // On the school ruling: the rows' distance on screen (0: a plain text), and where the nearest
+    // row's line is for a height on screen. The text's first line sits on it, even while dragged.
+    private var period = 0f
+    private var snap: ((Float) -> Float)? = null
+    private var looseY = 0f
     private var size = 0f
     private var sizeIndex = -1
     private var color = Color.BLACK
@@ -167,15 +207,22 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     private fun dp(v: Float) = context.dp(v)
     private fun dpi(v: Float) = context.dpi(v)
 
-    /** Opens with [text] at ([x], [y]); [sizeIndex] is -1 when [size] isn't one of the bar's. */
+    /**
+     * Opens with [text] at ([x], [y]); [sizeIndex] is -1 when [size] isn't one of the bar's. With a
+     * [period] it is a text on the school ruling, its first line on the row [snap] finds.
+     */
     @SuppressLint("ClickableViewAccessibility")
-    fun open(x: Float, y: Float, text: String, color: Int, size: Float, sizeIndex: Int) {
+    fun open(x: Float, y: Float, text: String, color: Int, size: Float, sizeIndex: Int, period: Float = 0f, snap: ((Float) -> Float)? = null) {
         if (isOpen) return
         this.x = x
         this.y = y
+        this.period = period
+        this.snap = snap.takeIf { period > 0f }
         this.color = color
         this.size = size
         this.sizeIndex = sizeIndex
+        onRow()
+        looseY = this.y
         inPlace = hasPhysicalKeyboard() || System.currentTimeMillis() - prefs.realKeyAt < REAL_KEY_MEMORY_MS
         keyboard = 0
         floating.setEmpty()
@@ -219,11 +266,14 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
                 this@TextEditor.color = it
                 refreshSpot()
             }
-            onSize = {
+            onSize = onSize@{
+                // On the ruling the letter is as big as the rows.
+                if (this@TextEditor.period > 0f) return@onSize
                 this@TextEditor.sizeIndex = it
                 this@TextEditor.size = dp(SIZES_DP[it])
                 refreshSpot()
             }
+            sizesOff = period > 0f
             onKeyboard = {
                 switchWriting()
                 // Chosen by hand: the on-screen keyboard until a real key is typed again.
@@ -291,6 +341,11 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
             onDrag = { dx, dy ->
                 this@TextEditor.x = spotParams.x + pad + dx
                 this@TextEditor.y = spotParams.y + pad + dy
+                if (this@TextEditor.snap != null) {
+                    looseY += dy
+                    this@TextEditor.y = looseY
+                    onRow()
+                }
                 refreshSpot()
                 arrange()
             }
@@ -310,7 +365,10 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     /** Ends the typing, keeping what was typed or not. */
     fun finish(commit: Boolean) {
         val window = root ?: return
-        val draft = if (commit) Draft(field.text.toString().trimEnd(), color, size, sizeIndex, x, y) else null
+        val typed = field.text.toString().trimEnd()
+        // On the ruling the rows it was wrapped into are kept as typed lines.
+        val words = if (period > 0f) TextBody(context, typed, size, period, wrapWidth()).lines().trimEnd() else typed
+        val draft = if (commit) Draft(words, color, size, sizeIndex, x, y, period) else null
         root = null
         imm.hideSoftInputFromWindow(field.windowToken, 0)
         card.animate().cancel()
@@ -324,6 +382,16 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         onAreas?.invoke(areaColumn, areaSpot, areaKeyboard)
         onDone?.invoke(draft)
     }
+
+    // Puts the first line on its row of the ruling.
+    private fun onRow() {
+        val row = snap ?: return
+        val first = TextBody(context, "x", size, period).firstBaseline
+        y = row(y + first) - first
+    }
+
+    // On the ruling a line goes on as far as the screen's right edge.
+    private fun wrapWidth() = max(screen.x - x - dp(WRAP_MARGIN_DP), size * 2f)
 
     private fun onSpot(rawX: Float, rawY: Float) =
         rawX >= spotParams.x && rawX < spotParams.x + spotParams.width &&
@@ -369,7 +437,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
     /** Shows the words as they are now; the window fits them and stays clear of the card. */
     private fun refreshSpot(attach: Boolean = true) {
         if (!::spot.isInitialized || (attach && !isOpen)) return
-        spot.show(field.text.toString(), size, shownColor(color))
+        spot.show(field.text.toString(), size, shownColor(color), period, if (period > 0f) wrapWidth() else 0f)
         spot.select(field.selectionStart, field.selectionEnd)
         val pad = spot.pad.toInt()
         spotParams.width = spot.boxWidth
@@ -513,6 +581,7 @@ internal class TextEditor(context: Context, private val wm: WindowManager) {
         // over the part of the screen it opens on (the lower 45 %).
         private const val UNKNOWN_KEYBOARD_TOP = 0.45f
         private const val EDGE_DP = 16f
+        private const val WRAP_MARGIN_DP = 24f
         private const val FIELD_SP = 22f
         private const val FIELD_LINES = 3
         private const val RISE_DP = 20f
@@ -578,12 +647,14 @@ private class TextSpot(context: Context) : View(context) {
     private var downY = 0f
     private var dragging = false
 
-    fun show(text: String, size: Float, color: Int) {
-        val b = TextBody(context, text, size).also { it.paint.color = color }
+    fun show(text: String, size: Float, color: Int, period: Float = 0f, wrap: Float = 0f) {
+        val b = TextBody(context, text, size, period, wrap).also { it.paint.color = color }
         body = b
-        boxWidth = (b.width + 2 * pad).toInt() + b.paint.textSize.toInt() / 2 // room for the next letter
-        boxHeight = (max(b.height, size) + 2 * pad).toInt()
+        boxWidth = (b.width + 2 * pad).toInt() + size.toInt() / 2 // room for the next letter
+        // The school letter's tails may hang below its last row.
+        boxHeight = (max(b.height, size) + 2 * pad + if (b.school) size * 0.6f else 0f).toInt()
         caretPaint.color = color
+        caretPaint.strokeWidth = dp(2.5f) * b.scale
         caretOn = true
         invalidate()
     }
@@ -603,6 +674,7 @@ private class TextSpot(context: Context) : View(context) {
         canvas.drawRoundRect(box, r, r, outerLine)
         canvas.drawRoundRect(box, r, r, innerLine)
         canvas.withTranslation(pad, pad) {
+            scale(1f / b.scale, 1f / b.scale)
             val layout = b.layout
             if (caret && start != end) {
                 layout.getSelectionPath(min(start, layout.text.length), min(end, layout.text.length), selectionPath)
@@ -613,7 +685,13 @@ private class TextSpot(context: Context) : View(context) {
                 val at = min(start, layout.text.length)
                 val line = layout.getLineForOffset(at)
                 val cx = layout.getPrimaryHorizontal(at)
-                drawLine(cx, layout.getLineTop(line).toFloat(), cx, layout.getLineBottom(line).toFloat(), caretPaint)
+                if (b.school) {
+                    // From the tall letters' top to the tails' end, not the whole row's height.
+                    val base = layout.getLineBaseline(line).toFloat()
+                    drawLine(cx, base - b.paint.textSize, cx, base + b.paint.textSize * 0.4f, caretPaint)
+                } else {
+                    drawLine(cx, layout.getLineTop(line).toFloat(), cx, layout.getLineBottom(line).toFloat(), caretPaint)
+                }
             }
         }
     }
@@ -637,9 +715,10 @@ private class TextSpot(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> if (!dragging) {
-                val layout = body?.layout ?: return true
-                val line = layout.getLineForVertical((e.y - pad).toInt())
-                onTap?.invoke(layout.getOffsetForHorizontal(line, e.x - pad))
+                val b = body ?: return true
+                val layout = b.layout
+                val line = layout.getLineForVertical(((e.y - pad) * b.scale).toInt())
+                onTap?.invoke(layout.getOffsetForHorizontal(line, (e.x - pad) * b.scale))
             }
         }
         return true
@@ -656,6 +735,13 @@ private class TextBar(context: Context, private var color: Int, private var size
     var onColor: ((Int) -> Unit)? = null
     var onSize: ((Int) -> Unit)? = null
     var onKeyboard: (() -> Unit)? = null
+
+    /** On the school ruling the letter is as big as the rows: the sizes show faint and can't be picked. */
+    var sizesOff = false
+        set(value) {
+            field = value
+            invalidate()
+        }
 
     /** Typing in place, not on the card. */
     var inPlace = inPlace
@@ -725,12 +811,12 @@ private class TextBar(context: Context, private var color: Int, private var size
         val ink = readable(color)
         for (i in TextEditor.SIZES_DP.indices) {
             val x = sizeX(i)
-            if (i == sizeIndex) {
+            if (i == sizeIndex && !sizesOff) {
                 fill.color = Chrome.pressed
                 box.set(x - sizeW / 2, cy - keyW / 2, x + sizeW / 2, cy + keyW / 2)
                 canvas.drawRoundRect(box, corner, corner, fill)
             }
-            letter.color = ink
+            letter.color = if (sizesOff) ColorUtils.setAlphaComponent(ink, 0x4D) else ink
             letter.textSize = dp(LETTERS_DP[i])
             canvas.drawText("Aa", x, cy - (letter.descent() + letter.ascent()) / 2f, letter)
         }
@@ -755,7 +841,7 @@ private class TextBar(context: Context, private var color: Int, private var size
 
     private fun itemAt(x: Float, y: Float): Int {
         if (abs(x - keyX) <= keyW / 2 + gap) return KEY
-        for (i in TextEditor.SIZES_DP.indices) if (abs(x - sizeX(i)) <= sizeW / 2) return SIZE + i
+        if (!sizesOff) for (i in TextEditor.SIZES_DP.indices) if (abs(x - sizeX(i)) <= sizeW / 2) return SIZE + i
         // The grid's outer rows reach to the bar's edges, so a slightly high or low touch still counts.
         for (i in Presets.COLORS.indices) {
             val rowHit = if (i / COLUMNS == 0) y < height / 2f else y >= height / 2f

@@ -73,6 +73,13 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
         private set
     internal var body: TextBody? = null
 
+    /**
+     * A text fitted to the school ruling: the distance from one writing row to the next (0: a plain
+     * text). Its lines are that far apart, in the school letter (see [TextBody]).
+     */
+    var period = 0f
+        internal set
+
     /** Whether this is a block with four corners, not a line of ink. */
     private val isBlock get() = tool == InkTool.IMAGE || tool == InkTool.TEXT
 
@@ -143,6 +150,7 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
         it.image = image
         it.imageData = imageData
         it.text = text
+        it.period = period
         it.group = group
         it.startTime = startTime
         it.endTime = endTime
@@ -183,6 +191,7 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
             p.y = xy[2 * i + 1]
         }
         size *= scale
+        period *= scale
         rebuild()
     }
 
@@ -242,9 +251,10 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
             }
 
         /** A text with its corners at ([x], [y]), ([x] + [u] · [w], …): [u] and [v] are the unit sides. */
-        fun text(text: String, color: Int, size: Float, x: Float, y: Float, w: Float, h: Float, u: PointF, v: PointF): Stroke =
+        fun text(text: String, color: Int, size: Float, x: Float, y: Float, w: Float, h: Float, u: PointF, v: PointF, period: Float = 0f): Stroke =
             Stroke(InkTool.TEXT, color, size, 1f).apply {
                 this.text = text
+                this.period = period
                 points.add(InkPoint(x, y, 1f))
                 points.add(InkPoint(x + u.x * w, y + u.y * w, 1f))
                 points.add(InkPoint(x + u.x * w + v.x * h, y + u.y * w + v.y * h, 1f))
@@ -253,8 +263,9 @@ class Stroke(val tool: InkTool, color: Int, size: Float, val speedUnit: Float) {
             }
 
         /** Rebuilds a saved text (its corners are added by the reader). */
-        internal fun savedText(text: String, color: Int, size: Float) = Stroke(InkTool.TEXT, color, size, 1f).apply {
+        internal fun savedText(text: String, color: Int, size: Float, period: Float = 0f) = Stroke(InkTool.TEXT, color, size, 1f).apply {
             this.text = text
+            this.period = period
         }
 
         /** Rebuilds a saved picture (its corners are added by the reader). */

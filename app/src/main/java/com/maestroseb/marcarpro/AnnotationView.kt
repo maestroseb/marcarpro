@@ -974,8 +974,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     private fun drawText(canvas: Canvas, s: Stroke, opacity: Float) {
         val text = s.text ?: return
         if (s.points.size != 4) return
-        val body = s.body ?: TextBody(context, text, s.size).also { s.body = it }
-        mapBlock(s, body.width, body.height)
+        val body = s.body ?: TextBody(context, text, s.size, s.period).also { s.body = it }
+        mapBlock(s, body.layout.width.toFloat(), body.layout.height.toFloat())
         body.paint.color = shown(s.color)
         body.paint.alpha = (255 * opacity).toInt()
         canvas.withMatrix(pictureMatrix) { body.layout.draw(this) }
@@ -2984,9 +2984,9 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     fun inkShown(color: Int) = shown(color)
 
     /** A new text, its top left corner at ([x], [y]) on screen and its letters [size] px tall there. */
-    fun addText(text: String, color: Int, size: Float, x: Float, y: Float) {
+    fun addText(text: String, color: Int, size: Float, x: Float, y: Float, period: Float = 0f) {
         val at = toBoard(x, y)
-        val s = textStroke(text, color, size / zoom, at[0], at[1], PointF(1f, 0f), PointF(0f, 1f))
+        val s = textStroke(text, color, size / zoom, at[0], at[1], PointF(1f, 0f), PointF(0f, 1f), period / zoom)
         s.group = board.nextGroup++
         clearSelection()
         showInk()
@@ -3000,18 +3000,18 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         invalidate()
     }
 
-    /** Where [s]'s top left corner is on screen, and its letter size there. */
+    /** Where [s]'s top left corner is on screen, its letter size there and its rows' distance (0: none). */
     fun textOnScreen(s: Stroke): FloatArray {
         val p = floatArrayOf(s.points[0].x, s.points[0].y)
         camera.mapPoints(p)
-        return floatArrayOf(p[0], p[1], s.size * zoom)
+        return floatArrayOf(p[0], p[1], s.size * zoom, s.period * zoom)
     }
 
     /**
      * The correction of [s] is over: with [text] empty it goes, with null (or nothing changed) it
      * stays as it was. The new one keeps its turn: it starts from ([x], [y]) along the same sides.
      */
-    fun endTextEdit(s: Stroke, text: String?, color: Int, size: Float, x: Float, y: Float) {
+    fun endTextEdit(s: Stroke, text: String?, color: Int, size: Float, x: Float, y: Float, period: Float = 0f) {
         airborne.remove(s)
         invalidateLayer(s.bounds)
         val index = strokes.indexOf(s)
@@ -3028,16 +3028,49 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         val u = PointF((p[1].x - p[0].x) / w, (p[1].y - p[0].y) / w)
         val v = PointF((p[3].x - p[0].x) / h, (p[3].y - p[0].y) / h)
         val at = toBoard(x, y)
-        val next = textStroke(text, color, size / zoom, at[0], at[1], u, v)
+        val next = textStroke(text, color, size / zoom, at[0], at[1], u, v, period / zoom)
         next.group = s.group
         strokes[index] = next
         history.record(History.Edited(listOf(History.Op(false, index, s), History.Op(true, index, next))))
         invalidateLayer(next.bounds)
     }
 
-    private fun textStroke(text: String, color: Int, size: Float, x: Float, y: Float, u: PointF, v: PointF): Stroke {
-        val body = TextBody(context, text, size)
-        return Stroke.text(text, color, size, x, y, body.width, body.height, u, v).also { it.body = body }
+    private fun textStroke(text: String, color: Int, size: Float, x: Float, y: Float, u: PointF, v: PointF, period: Float = 0f): Stroke {
+        val body = TextBody(context, text, size, period)
+        return Stroke.text(text, color, size, x, y, body.width, body.height, u, v, period).also { it.body = body }
+    }
+
+    /**
+     * The school ruling on screen, when the board has one to type on (double, Montessori, Lamela)
+     * and it shows: where its rows are, so a typed text can sit on them. Null otherwise.
+     */
+    fun ruling(): Ruling? {
+        if (!board.paper) return null
+        val (rows, body) = when (paperStyle) {
+            Paper.DOUBLE -> DOUBLE_PERIOD to DOUBLE_LINES
+            Paper.MONTESSORI -> MONTESSORI_PERIOD to floatArrayOf(MONTESSORI_LINES[2], MONTESSORI_LINES[3])
+            Paper.LAMELA, Paper.LAMELA_PLAIN -> LAMELA_PERIOD to floatArrayOf(LAMELA_LINES[2], LAMELA_LINES[3])
+            else -> return null
+        }
+        val step = dp(GRID_DP) * camera.mapRadius(1f)
+        if (step < dp(MIN_GRID_DP)) return null
+        camera.mapPoints(origin, ZERO)
+        return Ruling(origin[1], rows * step, body[0] * step, body[1] * step)
+    }
+
+    /**
+     * A school ruling on screen: rows [period] apart from [top] (a row's first line), the letters'
+     * body between [bodyTop] and [bodyBottom] below it.
+     */
+    class Ruling(val top: Float, val period: Float, val bodyTop: Float, val bodyBottom: Float) {
+        /** The letter size whose small letters fill the body: the school letter's x-height is half its size. */
+        val letterSize get() = (bodyBottom - bodyTop) / SCHOOL_X_HEIGHT
+
+        /** The line under the body of the row nearest to [y]: where a typed line sits. */
+        fun lineNear(y: Float): Float {
+            val row = kotlin.math.round((y - top - (bodyTop + bodyBottom) / 2f) / period)
+            return top + row * period + bodyBottom
+        }
     }
 
     /** Whether the ink on screen covers ([x], [y]) in screen pixels, give or take [radius]. */
@@ -3271,6 +3304,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         const val LAMELA_PERIOD = 4f
         val LAMELA_LINES = floatArrayOf(0f, 3f, 1f, 2f)
         const val LAMELA_STRONG = 2
+        /** Playwrite España's small letters are half its size high (its x-height, 500 of 1000 units). */
+        const val SCHOOL_X_HEIGHT = 0.5f
         private const val LAMELA_THIN = 0xFF9DB7D6.toInt()
         private const val LAMELA_STRONG_COLOR = 0xFF2F6FB3.toInt()
         private const val LAMELA_THIN_DARK = 0x667FA6CC

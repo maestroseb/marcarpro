@@ -31,6 +31,10 @@ internal object Fonts {
     fun regular(c: Context) = regular ?: load(c, R.font.atkinson_regular).also { regular = it }
     fun bold(c: Context) = bold ?: load(c, R.font.atkinson_bold).also { bold = it }
 
+    /** The school letter (Playwrite España), for texts on the school ruling. */
+    private var school: android.graphics.Typeface? = null
+    fun school(c: Context) = school ?: load(c, R.font.playwrite_es).also { school = it }
+
     private fun load(c: Context, res: Int) =
         runCatching { androidx.core.content.res.ResourcesCompat.getFont(c, res) }.getOrNull() ?: android.graphics.Typeface.DEFAULT
 }

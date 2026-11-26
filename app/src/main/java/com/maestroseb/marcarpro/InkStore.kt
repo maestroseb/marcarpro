@@ -70,10 +70,13 @@ internal object InkStore {
                 out.put(s.tool.ordinal.toByte())
                 out.putInt(s.color)
                 out.putFloat(s.size)
-                out.putFloat(s.speedUnit)
+                // A text on the school ruling keeps its rows' distance where ink keeps its speed unit,
+                // flagged where ink tells real pressure (a text has neither): old files read as before.
+                val ruled = s.tool == InkTool.TEXT && s.period > 0f
+                out.putFloat(if (ruled) s.period else s.speedUnit)
                 out.putInt(s.group)
                 out.put(if (s.uniform) 1 else 0)
-                out.put(if (s.hasRealPressure) 1 else 0)
+                out.put(if (s.hasRealPressure || ruled) 1 else 0)
                 out.putInt(s.points.size)
                 for (p in s.points) {
                     out.putFloat(p.x)
@@ -132,7 +135,7 @@ internal object InkStore {
                     val len = input.readInt()
                     if (len !in 0..MAX_TEXT) throw IOException("corrupt")
                     val words = ByteArray(len).also { input.readFully(it) }
-                    Stroke.savedText(String(words, Charsets.UTF_8), color, size)
+                    Stroke.savedText(String(words, Charsets.UTF_8), color, size, if (realPressure && speed > 0f) speed else 0f)
                 } else {
                     Stroke(tool, color, size, speed)
                 }
