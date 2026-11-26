@@ -486,6 +486,8 @@ class OverlayService : Service() {
             RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = caseTint),
             RingItem(null, R.drawable.ic_ruler, getString(R.string.tool_ruler), RingToggle.RULER, tint = caseTint),
             RingItem(null, R.drawable.ic_protractor, getString(R.string.tool_protractor), RingToggle.PROTRACTOR, tint = caseTint),
+            RingItem(null, R.drawable.ic_compass, getString(R.string.tool_compass), RingToggle.COMPASS, tint = caseTint),
+            RingItem(null, R.drawable.ic_numberline, getString(R.string.tool_numberline), RingToggle.NUMBER_LINE, tint = caseTint),
         )
         val classTint = 0xFF5C677D.toInt()
         val classDrawer = listOf(
@@ -1067,6 +1069,20 @@ class OverlayService : Service() {
                 hidePalette()
                 if (paused) togglePause()
                 ink.toggleRuler { refresh() }
+                refresh()
+                return
+            }
+            RingToggle.COMPASS -> {
+                hidePalette()
+                if (paused) togglePause()
+                ink.toggleCompass { refresh() }
+                refresh()
+                return
+            }
+            RingToggle.NUMBER_LINE -> {
+                hidePalette()
+                if (paused) togglePause()
+                ink.toggleNumberLine { refresh() }
                 refresh()
                 return
             }
@@ -2903,7 +2919,7 @@ class OverlayService : Service() {
                 pupilsOn = prefs.fingerMode == FingerMode.WRITE
                 tint = orbTint(ink.tool)
             }
-            o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE, ink.protractorShown, ink.rulerShown)
+            o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE, ink.protractorShown, ink.rulerShown, ink.compassShown, ink.numberLineShown)
             o.away = if (whiteboard && !paused) setOf(RingToggle.PUPILS.name) else emptySet()
         }
         updateQuick()

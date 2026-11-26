@@ -244,5 +244,13 @@
     <string name="tool_class">Class</string>
     <string name="tool_protractor">Protractor</string>
     <string name="tool_case">Pencil case</string>
+    <string name="tool_compass">Compass</string>
+    <string name="tool_numberline">Number line</string>
+    <string name="numberline_options">Options</string>
+    <string name="numberline_hint">Two fingers: closer, farther and slide</string>
+    <string name="numberline_from_zero">From 0</string>
+    <string name="numberline_negatives">With negatives</string>
+    <string name="numberline_whole">Whole numbers</string>
+    <string name="numberline_decimals">Decimals</string>
     <string name="tool_ruler">Ruler</string>
 </resources>

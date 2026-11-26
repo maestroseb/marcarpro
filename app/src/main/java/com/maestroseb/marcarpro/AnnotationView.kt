@@ -739,6 +739,40 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     /** The same for the ruler. */
     fun toggleRuler(changed: () -> Unit) = toggleTool<RulerView>(changed) { close -> RulerView(context, close) }
 
+    val compassShown get() = tools.any { it is CompassView }
+    val numberLineShown get() = tools.any { it is NumberLineView }
+
+    /** The compass: what its pencil draws becomes pen ink. */
+    fun toggleCompass(changed: () -> Unit) = toggleTool<CompassView>(changed) { close ->
+        CompassView(context, close, ::addArc, { shown(inkColor) }, { inkSize })
+    }
+
+    /** The number line. */
+    fun toggleNumberLine(changed: () -> Unit) = toggleTool<NumberLineView>(changed) { close -> NumberLineView(context, close) }
+
+    /**
+     * An arc drawn with the compass ([points]: x, y pairs in this view) becomes a pen stroke in the
+     * pen's colour and thickness, a group of its own, one undo step.
+     */
+    private fun addArc(points: FloatArray) {
+        if (points.size < 4) return
+        camera.invert(inverse)
+        inverse.mapPoints(points)
+        val s = Stroke(InkTool.PEN, inkColor, inkSize / zoom, speedUnit = dp(14f) / zoom)
+        var i = 0
+        while (i < points.size) {
+            s.add(points[i], points[i + 1], 1f)
+            i += 2
+        }
+        s.uniform = true
+        s.finish()
+        s.startTime = SystemClock.uptimeMillis()
+        s.endTime = s.startTime
+        s.group = board.nextGroup++
+        showInk()
+        insertStrokes(listOf(s))
+    }
+
     private inline fun <reified T : MathTool> toggleTool(noinline changed: () -> Unit, make: (() -> Unit) -> T) {
         tools.firstOrNull { it is T }?.let {
             removeView(it.view)

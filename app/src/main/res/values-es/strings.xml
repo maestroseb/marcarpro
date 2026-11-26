@@ -247,5 +247,13 @@
     <string name="tool_class">Aula</string>
     <string name="tool_protractor">Transportador</string>
     <string name="tool_case">Estuche</string>
+    <string name="tool_compass">Compás</string>
+    <string name="tool_numberline">Recta numérica</string>
+    <string name="numberline_options">Opciones</string>
+    <string name="numberline_hint">Dos dedos: acercar, alejar y mover</string>
+    <string name="numberline_from_zero">Desde 0</string>
+    <string name="numberline_negatives">Con negativos</string>
+    <string name="numberline_whole">Enteros</string>
+    <string name="numberline_decimals">Decimales</string>
     <string name="tool_ruler">Regla</string>
 </resources>

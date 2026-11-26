@@ -26,6 +26,19 @@ import kotlin.math.sqrt
  * away. A stroke started against either long edge comes out straight along it, its length shown
  * live in a pill.
  */
+/**
+ * Pixels in a centimetre on this screen, for the ruler and the compass: real ones when the panel
+ * says its size believably (a 40–110″ board), else a fixed scale that reads well from the back.
+ */
+internal fun boardPxPerCm(context: Context): Float {
+    val m = context.resources.displayMetrics
+    val inches = if (m.xdpi > 0 && m.ydpi > 0) sqrt((m.widthPixels / m.xdpi).let { it * it } + (m.heightPixels / m.ydpi).let { it * it }) else 0f
+    return if (inches in 40f..110f) m.xdpi / 2.54f else context.dp(FALLBACK_CM_DP)
+}
+
+/** A centimetre when the panel doesn't say its real size. */
+private const val FALLBACK_CM_DP = 38f
+
 @SuppressLint("ViewConstructor")
 internal class RulerView(context: Context, private val onClose: () -> Unit) : View(context), MathTool {
     override val view: View get() = this
@@ -35,11 +48,7 @@ internal class RulerView(context: Context, private val onClose: () -> Unit) : Vi
      * Pixels in a centimetre: real ones when the panel says its size believably (a 50–100″ board),
      * else a fixed scale that reads well from the back of the room.
      */
-    private val pxPerCm: Float = run {
-        val m = resources.displayMetrics
-        val inches = if (m.xdpi > 0 && m.ydpi > 0) sqrt((m.widthPixels / m.xdpi).let { it * it } + (m.heightPixels / m.ydpi).let { it * it }) else 0f
-        if (inches in 40f..110f) m.xdpi / 2.54f else dp(FALLBACK_CM_DP)
-    }
+    private val pxPerCm: Float = boardPxPerCm(context)
 
     private val pad = dp(PAD_DP)
     private val tall = dp(HEIGHT_DP)
@@ -377,8 +386,6 @@ internal class RulerView(context: Context, private val onClose: () -> Unit) : Vi
         const val CHIP_DP = 18f
         const val DEFAULT_CM = 30f
         const val MIN_CM = 5f
-        /** A centimetre when the panel doesn't say its real size. */
-        const val FALLBACK_CM_DP = 38f
         const val SNAP_DEG = 3f
         const val EDGE_IN_DP = 6f
         const val EDGE_REACH_DP = 22f

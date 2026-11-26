@@ -86,7 +86,7 @@ internal object Chrome {
 }
 
 /** Ring items that switch something on and off instead of picking a tool. */
-internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK, PROTRACTOR, RULER }
+internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK, PROTRACTOR, RULER, COMPASS, NUMBER_LINE }
 
 /** One tool in the ring. */
 internal class RingItem(
@@ -242,12 +242,14 @@ internal class OrbitLayout(
         }
     }
 
-    fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean, protractor: Boolean = false, ruler: Boolean = false) {
+    fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean, protractor: Boolean = false, ruler: Boolean = false, compass: Boolean = false, numberLine: Boolean = false) {
         for (s in satellites) if (!s.item.isDrawer) s.active = when (s.item.toggle) {
             RingToggle.HIDE -> hidden
             RingToggle.PUPILS -> pupils
             RingToggle.PROTRACTOR -> protractor
             RingToggle.RULER -> ruler
+            RingToggle.COMPASS -> compass
+            RingToggle.NUMBER_LINE -> numberLine
             RingToggle.TEXT, RingToggle.LOCK -> false // one-off actions, never "on"
             null -> s.item.tool == tool
         }
@@ -281,19 +283,23 @@ internal class OrbitLayout(
         val hp = slots[i]
         val a = atan2(hp.y.toDouble(), hp.x.toDouble())
         val r = hypot(hp.x, hp.y) + drawerReach
-        val step = satSize * STEP / r
+        // A little more room than in the ring: a drawer's names are long ("Recta numérica").
+        val step = satSize * DRAWER_STEP / r
         val n = list.size
         val margin = satSize / 2f + dp(8f)
         val labelRoom = dp(26f)
         val at = { base: Double -> (0 until n).map { j -> base + (j - (n - 1) / 2.0) * step } }
+        // Each tool and its name inside the screen (a long name sticks out further than its tool).
         val fits = { base: Double ->
-            at(base).all { ang ->
+            at(base).withIndex().all { (j, ang) ->
                 val x = openCx + cos(ang) * r
                 val y = openCy + sin(ang) * r
-                x in margin..(screenW - margin) && y in margin..(screenH - margin - labelRoom)
+                val half = max(margin, list[j].pillHalf + dp(4f)).toDouble()
+                x in half..(screenW - half) && y in margin..(screenH - margin - labelRoom)
             }
         }
-        val base = FAN_TURNS.map { a + it * 0.5 }.firstOrNull(fits) ?: a
+        // Turned towards the screen as far as needed (a full drawer near a corner turns a lot).
+        val base = FAN_TURNS.map { a + it * DRAWER_TURN }.firstOrNull(fits) ?: a
         kidSlots = at(base).map { ang -> PointF((cos(ang) * r).toFloat(), (sin(ang) * r).toFloat()) }
         spreadLabels(list, kidSlots)
         for (s in shown) if (s !== host) {
@@ -701,6 +707,8 @@ internal class OrbitLayout(
         const val STEP = 1.42
         /** A drawer's tools sit this many tool sizes further out than the ring. */
         const val DRAWER_REACH = 1.5f
+        const val DRAWER_STEP = 1.7
+        const val DRAWER_TURN = 1.3
         const val DIM_ALPHA = 0.3f
         const val DIM_SCALE = 0.85f
         /** The closest a tool sits to the orb's centre (the orb, a gap and the tool). */
