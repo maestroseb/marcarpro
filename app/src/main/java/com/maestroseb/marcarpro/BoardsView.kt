@@ -58,6 +58,19 @@ internal fun drawPaperSheet(canvas: Canvas, r: RectF, p: Paper, color: PaperColo
             canvas.drawRect(r.left + inset, r.top + MONTESSORI_THUMB[2] * h, r.right - inset, r.top + MONTESSORI_THUMB[3] * h, montessoriBandPaint)
             for (y in MONTESSORI_THUMB) canvas.drawLine(r.left + inset, r.top + y * h, r.right - inset, r.top + y * h, mark)
         }
+        Paper.LAMELA, Paper.LAMELA_PLAIN -> {
+            val step = w / 4
+            var x = r.left + step
+            while (x < r.right - 1) { canvas.drawLine(x, r.top + 2, x, r.bottom - 2, mark); x += step }
+            var y = r.top + step
+            var row = 1
+            while (y < r.bottom - 1) {
+                val strongRow = row % 4 == 1 || row % 4 == 2
+                if (strongRow) { val w0 = mark.strokeWidth; mark.strokeWidth = w0 * 2.2f; canvas.drawLine(r.left + 2, y, r.right - 2, y, mark); mark.strokeWidth = w0 }
+                else canvas.drawLine(r.left + 2, y, r.right - 2, y, mark)
+                y += step; row++
+            }
+        }
         Paper.STAFF -> for (i in 0 until 5) {
             val y = r.top + h * (0.3f + i * 0.1f) // five lines close together: a staff
             canvas.drawLine(r.left + inset, y, r.right - inset, y, mark)

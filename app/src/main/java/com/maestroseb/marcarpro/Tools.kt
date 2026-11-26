@@ -4,9 +4,12 @@ package com.maestroseb.marcarpro
 enum class Tool { PEN, HIGHLIGHTER, ERASER, MAGIC, SHAPE }
 
 /** The whiteboard's background; DOUBLE is the school "doble pauta" (pairs of lines), STAFF music staves,
+ * LAMELA squares where every fourth row is the writing row, between two strong lines, with a
+ * friend (LamelaFriends) at the screen's left edge riding each one (the Spanish "pauta Lamela" of the
+ * first years); LAMELA_PLAIN the same without them (3rd-4th year, maths and science).
  * MONTESSORI the four-line "pauta Montessori" (a thin pair between rows, the letters' body narrower than
  * the bands above and below it). */
-enum class Paper { BLANK, DOTS, GRID, LINES, DOUBLE, MONTESSORI, STAFF }
+enum class Paper { BLANK, DOTS, GRID, LINES, DOUBLE, MONTESSORI, LAMELA, LAMELA_PLAIN, STAFF }
 
 /**
  * The whiteboard's paper colour. On a [dark] one, black ink is shown white (it stays black, and

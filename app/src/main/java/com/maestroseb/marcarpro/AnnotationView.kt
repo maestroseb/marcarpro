@@ -1168,6 +1168,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         val (period, offsets) = when (paperStyle) {
             Paper.DOUBLE -> step * DOUBLE_PERIOD to DOUBLE_LINES
             Paper.MONTESSORI -> step * MONTESSORI_PERIOD to MONTESSORI_LINES
+            Paper.LAMELA, Paper.LAMELA_PLAIN -> step * LAMELA_PERIOD to LAMELA_LINES
             Paper.STAFF -> step * STAFF_PERIOD to STAFF_LINES
             else -> step to SINGLE_LINE
         }
@@ -1178,7 +1179,11 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         if (gridLines.size < need) gridLines = FloatArray(need)
         var n = 0
         // Montessori: the two middle lines (the letters' body) go in a second, darker batch.
-        val strongFrom = if (paperStyle == Paper.MONTESSORI) MONTESSORI_STRONG else offsets.size
+        val strongFrom = when (paperStyle) {
+            Paper.MONTESSORI -> MONTESSORI_STRONG
+            Paper.LAMELA, Paper.LAMELA_PLAIN -> LAMELA_STRONG
+            else -> offsets.size
+        }
         for (pass in 0..1) {
             if (pass == 1) strong = n
             for (r in 0 until ruled) {
@@ -1190,7 +1195,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
                 }
             }
         }
-        if (paperStyle == Paper.GRID) for (c in 0 until cols) {
+        val lamela = paperStyle == Paper.LAMELA || paperStyle == Paper.LAMELA_PLAIN
+        if (paperStyle == Paper.GRID || lamela) for (c in 0 until cols) {
             val x = x0 + c * step
             gridLines[n++] = x; gridLines[n++] = 0f; gridLines[n++] = x; gridLines[n++] = h
         }
@@ -1202,6 +1208,23 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             }
             canvas.drawLines(gridLines, 0, strong, linePaint)
             canvas.drawLines(gridLines, strong, n - strong, bodyPaint)
+            return
+        }
+        if (lamela) {
+            canvas.drawLines(gridLines, 0, strong, linePaint)
+            canvas.drawLines(gridLines, strong, (ruled * offsets.size * 4).coerceAtMost(n) - strong, bodyPaint)
+            canvas.drawLines(gridLines, ruled * offsets.size * 4, n - ruled * offsets.size * 4, linePaint)
+            // The little train rides each writing row, always at the screen's left edge: it grows
+            // with the zoom and goes up and down with its row, but sideways it stays put.
+            if (paperStyle == Paper.LAMELA) {
+                // Which row this is on the board (they take turns by it, so each keeps its friend).
+                val first = -kotlin.math.floor(origin[1] / period).toInt() - 1
+                for (r in 0 until ruled) {
+                    val base = ry0 + r * period + 2 * step
+                    if (base < -step || base - step * 2.2f > h) continue
+                    LamelaFriends.draw(canvas, first + r, dp(TRAIN_LEFT_DP), base, step)
+                }
+            }
             return
         }
         canvas.drawLines(gridLines, 0, n, if (paperStyle == Paper.STAFF) staffPaint else linePaint)
@@ -3227,6 +3250,13 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         val MONTESSORI_LINES = floatArrayOf(0f, 0.07f, 0.75f, 1.25f)
         /** From this line on (the two middle ones) a Montessori row is drawn darker, to stand out. */
         const val MONTESSORI_STRONG = 2
+        // Lamela: squares, and every fourth row the one to write in, between two strong lines (the
+        // offsets list the strong pair last, see MONTESSORI_STRONG).
+        const val LAMELA_PERIOD = 4f
+        val LAMELA_LINES = floatArrayOf(0f, 3f, 1f, 2f)
+        const val LAMELA_STRONG = 2
+        private const val TRAIN_LEFT_DP = 6f
+
         /** How fast the paper's lines grow with the zoom, the most they grow, and how much darker. */
         private const val PAPER_GROW = 0.5f
         private const val PAPER_GROW_MAX = 3f

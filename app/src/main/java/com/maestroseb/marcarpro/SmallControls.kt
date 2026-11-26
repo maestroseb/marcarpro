@@ -708,6 +708,9 @@ internal class PaperPickerView(
         canvas.drawText(names[p.ordinal], cx, sheetTop + s + dp(17f), text)
     }
 
+    private val strong = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(2.2f) }
+    private val trainDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF5BC24A.toInt() }
+
     /** A little sheet of paper [p], [s] wide, in the paper's colour, centred on ([cx], [cy]). */
     private fun drawSheet(canvas: Canvas, p: Paper, cx: Float, cy: Float, s: Float, chosen: Boolean) {
         r.set(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2)
@@ -729,6 +732,15 @@ internal class PaperPickerView(
             Paper.MONTESSORI -> {
                 canvas.drawRect(r.left + dp(3f), r.top + MONTESSORI_THUMB[2] * s, r.right - dp(3f), r.top + MONTESSORI_THUMB[3] * s, montessoriBandPaint)
                 for (y in MONTESSORI_THUMB) canvas.drawLine(r.left + dp(3f), r.top + y * s, r.right - dp(3f), r.top + y * s, mark)
+            }
+            Paper.LAMELA, Paper.LAMELA_PLAIN -> {
+                for (i in 1..3) canvas.drawLine(r.left + i * step, r.top + dp(2f), r.left + i * step, r.bottom - dp(2f), mark)
+                for (i in 1..3) canvas.drawLine(r.left + dp(2f), r.top + i * step, r.right - dp(2f), r.top + i * step, mark)
+                // The writing row, between two strong lines, and a dot of the train's blue.
+                strong.color = mark.color
+                canvas.drawLine(r.left + dp(2f), r.top + step, r.right - dp(2f), r.top + step, strong)
+                canvas.drawLine(r.left + dp(2f), r.top + 2 * step, r.right - dp(2f), r.top + 2 * step, strong)
+                if (p == Paper.LAMELA) canvas.drawCircle(r.left + step * 0.55f, r.top + step * 1.5f, dp(2.6f), trainDot)
             }
             Paper.STAFF -> for (i in 0 until 5) {
                 val y = r.top + s * (0.3f + i * 0.1f) // five lines close together: a staff
