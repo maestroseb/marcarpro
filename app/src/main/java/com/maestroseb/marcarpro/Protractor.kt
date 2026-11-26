@@ -307,6 +307,9 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
 
     // region Touch
 
+    /** Set by the board for the touch coming: a finger on the sheet off its handles, which moves it. */
+    var grabNext = false
+
     private var zone = Zone.NONE
     private var lastX = 0f
     private var lastY = 0f
@@ -367,6 +370,8 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 zone = zoneAt(e.x, e.y)
+                if (zone == Zone.NONE && grabNext) zone = Zone.MOVE
+                grabNext = false
                 pinching = false
                 if (zone == Zone.NONE) return false
                 lastX = e.rawX

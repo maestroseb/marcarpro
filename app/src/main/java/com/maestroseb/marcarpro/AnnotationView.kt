@@ -775,8 +775,23 @@ class AnnotationView(context: Context) : ViewGroup(context) {
 
     /** Every touch is the board's (the wet cells only draw), unless it starts where a tool is held. */
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) onTool = protractor?.hitsParent(ev.x, ev.y) == true
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            val p = protractor
+            // Its handles always; anywhere else on it, a finger moves it (a pen writes on it, and
+            // while fingers write, pupils' or a board without a pen, only its plate moves it).
+            val grab = p != null && !p.hitsParent(ev.x, ev.y) && p.onSheet(ev.x, ev.y) &&
+                !fingersWrite && !fingerDraws && contactOf(ev) == Contact.FINGER
+            p?.grabNext = grab
+            onTool = p != null && (grab || p.hitsParent(ev.x, ev.y))
+        }
         return !onTool
+    }
+
+    /** What touched the glass, for a touch not yet the ink's. */
+    private fun contactOf(e: MotionEvent): Contact {
+        val saved = raw
+        raw = null
+        return classify(e, 0).also { raw = saved }
     }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
