@@ -240,4 +240,6 @@
     <string name="timer_countdown_min">Countdown (minutes)</string>
     <string name="timer_start">Start</string>
     <string name="tool_class">Class</string>
+    <string name="tool_protractor">Protractor</string>
+    <string name="tool_case">Pencil case</string>
 </resources>

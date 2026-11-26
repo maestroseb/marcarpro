@@ -86,7 +86,7 @@ internal object Chrome {
 }
 
 /** Ring items that switch something on and off instead of picking a tool. */
-internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK }
+internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK, PROTRACTOR }
 
 /** One tool in the ring. */
 internal class RingItem(
@@ -242,10 +242,11 @@ internal class OrbitLayout(
         }
     }
 
-    fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean) {
+    fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean, protractor: Boolean = false) {
         for (s in satellites) if (!s.item.isDrawer) s.active = when (s.item.toggle) {
             RingToggle.HIDE -> hidden
             RingToggle.PUPILS -> pupils
+            RingToggle.PROTRACTOR -> protractor
             RingToggle.TEXT, RingToggle.LOCK -> false // one-off actions, never "on"
             null -> s.item.tool == tool
         }
@@ -698,7 +699,7 @@ internal class OrbitLayout(
         /** Arc between two tools' centres, in tool widths (room for the label pills too). */
         const val STEP = 1.42
         /** A drawer's tools sit this many tool sizes further out than the ring. */
-        const val DRAWER_REACH = 1.3f
+        const val DRAWER_REACH = 1.5f
         const val DIM_ALPHA = 0.3f
         const val DIM_SCALE = 0.85f
         /** The closest a tool sits to the orb's centre (the orb, a gap and the tool). */

@@ -473,6 +473,11 @@ class OverlayService : Service() {
         // 4. Main orb and its ring, each in its own window (added last, so they float above the others).
         // What is used all the time sits in the ring; the rest waits in drawers that open on a second
         // arc. A drawer with a single tool would be a needless tap: that tool sits in the ring.
+        val caseTint = 0xFF0C8F6F.toInt()
+        val caseDrawer = listOf(
+            RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = caseTint),
+            RingItem(null, R.drawable.ic_protractor, getString(R.string.tool_protractor), RingToggle.PROTRACTOR, tint = caseTint),
+        )
         val classTint = 0xFF5C677D.toInt()
         val classDrawer = listOf(
             RingItem(null, R.drawable.ic_hide, getString(R.string.tool_hide), RingToggle.HIDE, tint = classTint),
@@ -485,7 +490,7 @@ class OverlayService : Service() {
             RingItem(Tool.MAGIC, R.drawable.ic_magic, getString(R.string.tool_magic), tint = 0xFFC2255C.toInt()),
             RingItem(null, R.drawable.ic_text, getString(R.string.tool_text), RingToggle.TEXT, tint = 0xFF1C7ED6.toInt()),
             RingItem(null, R.drawable.ic_pupils, getString(R.string.tool_pupils), RingToggle.PUPILS, tint = 0xFF7048E8.toInt()),
-            RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = 0xFF0C8F6F.toInt()),
+            RingItem(null, R.drawable.ic_case, getString(R.string.tool_case), tint = caseTint, children = caseDrawer, drawerKey = "CASE"),
             RingItem(null, R.drawable.ic_school, getString(R.string.tool_class), tint = classTint, children = classDrawer, drawerKey = "CLASS"),
         )
         ringItems = ring
@@ -1047,6 +1052,14 @@ class OverlayService : Service() {
             RingToggle.PUPILS -> {
                 hidePalette()
                 togglePupils()
+                return
+            }
+            RingToggle.PROTRACTOR -> {
+                hidePalette()
+                // To use it the board must take touches: writing again if the screen was in use.
+                if (paused) togglePause()
+                ink.toggleProtractor { refresh() }
+                refresh()
                 return
             }
             RingToggle.LOCK -> {
@@ -2859,7 +2872,7 @@ class OverlayService : Service() {
                 pupilsOn = prefs.fingerMode == FingerMode.WRITE
                 tint = orbTint(ink.tool)
             }
-            o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE)
+            o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE, ink.protractorShown)
             o.away = if (whiteboard && !paused) setOf(RingToggle.PUPILS.name) else emptySet()
         }
         updateQuick()

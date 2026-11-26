@@ -707,10 +707,43 @@ class AnnotationView(context: Context) : ViewGroup(context) {
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         for (cell in cells) cell.layout(cell.x0, cell.y0, cell.x1, cell.y1)
+        protractor?.let { it.layout(0, 0, it.measuredWidth, it.measuredHeight) }
     }
 
-    /** Every touch is the board's: the wet cells only draw. */
-    override fun onInterceptTouchEvent(ev: MotionEvent) = true
+    // region Maths tools: views of their own over the ink (moving them never repaints the board).
+
+    private var protractor: ProtractorView? = null
+    /** Whether the touch going on now started where a tool is held (then it is the tool's). */
+    private var onTool = false
+
+    val protractorShown get() = protractor != null
+
+    /** Puts the protractor on the board, or takes it away; [changed] is told when it is closed from itself. */
+    fun toggleProtractor(changed: () -> Unit) {
+        val p = protractor
+        if (p != null) {
+            removeView(p)
+            protractor = null
+            return
+        }
+        val v = ProtractorView(context) {
+            protractor?.let { removeView(it) }
+            protractor = null
+            changed()
+        }
+        v.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
+        v.placeIn(width, height)
+        addView(v)
+        protractor = v
+    }
+
+    // endregion
+
+    /** Every touch is the board's (the wet cells only draw), unless it starts where a tool is held. */
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) onTool = protractor?.hitsParent(ev.x, ev.y) == true
+        return !onTool
+    }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
@@ -1460,6 +1493,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             val y = k / cellCols * CELL
             WetCell(x, y, min(x + CELL, w), min(y + CELL, h)).also { addViewInLayout(it, -1, generateDefaultLayoutParams(), true) }
         }
+        // The maths tools stay on top of the new cells.
+        protractor?.let { addViewInLayout(it, -1, generateDefaultLayoutParams(), true) }
         // A stroke being written starts again on the new cells.
         for (live in inking.values) {
             live.laid = 0
