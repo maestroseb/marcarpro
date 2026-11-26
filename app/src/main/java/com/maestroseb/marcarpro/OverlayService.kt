@@ -104,7 +104,7 @@ class OverlayService : Service() {
         private const val TRASH_POSITION = "clearAll"
         private const val CLOCK_POSITION = "clock"
         private const val LOCK_POSITION = "lock"
-        private const val LOCK_HOLD_MS = 2000L
+        private const val LOCK_HOLD_MS = 1500L
         private const val PILL_EDGE_DP = 24f
         private const val SHARE_WAIT_MS = 150L
         private const val PDF_MIME = "application/pdf"
