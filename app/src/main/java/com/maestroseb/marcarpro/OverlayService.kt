@@ -441,10 +441,18 @@ class OverlayService : Service() {
         // 2b. Clock: only with the whiteboard; at first just left of the share button, then wherever dropped.
         var clockF: Floater? = null
         val clock = ClockView(this,
-            onResize = { w -> clockF?.let { f -> f.resizeKeepingLeft(w); if (pillShown) reserve(PanelTouch.AREA_CLOCK, f) } },
+            onResize = { w ->
+                clockF?.let { f ->
+                    // It grows towards the free side: on the right of the screen (next to Share, at
+                    // first) to the left, so it never covers the buttons in the corner.
+                    if ((f.view as ClockView).timerOnLeft) f.resizeKeepingRight(w) else f.resizeKeepingLeft(w)
+                    if (pillShown) reserve(PanelTouch.AREA_CLOCK, f)
+                }
+            },
             onEnd = ::timerEnded,
         )
         timerCard?.clock = clock
+        clock.growLeft = { (clockF?.cx ?: 0) > wm.screenSize().x / 2 }
         clockF = Floater(wm, clock, clock.windowWidth, core = clock.windowHeight / 2,
             coreRight = clock.windowWidth / 2, coreLeft = clock.windowWidth / 2, height = clock.windowHeight)
         clockFloater = clockF

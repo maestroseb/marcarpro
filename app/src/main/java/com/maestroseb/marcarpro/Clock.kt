@@ -67,9 +67,17 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         else -> clockText(remaining())
     }
 
+    /** Asked when the capsule grows: true puts the timer on the left (the clock is on the right of the screen). */
+    var growLeft: () -> Boolean = { false }
+
+    /** Where the timer part goes: decided when it appears, so it never jumps sides while it runs. */
+    var timerOnLeft = false
+        private set
+
     /** Resizes the capsule if the timer's text changed shape. */
     private fun fit() {
         val w = if (mode == Mode.NONE) 0f else widthFor(timerLabel())
+        if (timerWidth <= 0f && w > 0f) timerOnLeft = growLeft()
         if (w != timerWidth) {
             timerWidth = w
             requestLayout()
@@ -270,14 +278,17 @@ internal class ClockView(context: Context, private val onResize: (Int) -> Unit, 
         val base = cy - (timeText.descent() + timeText.ascent()) / 2
         timeText.color = Chrome.text
         timeText.textAlign = Paint.Align.CENTER
-        canvas.drawText(time(), left + timeWidth / 2, base, timeText)
+        // On the right of the screen the timer comes on the time's left, so the time stays where it was.
+        val onLeft = timerOnLeft && mode != Mode.NONE
+        val timeLeft = if (onLeft) left + timerWidth else left
+        canvas.drawText(time(), timeLeft + timeWidth / 2, base, timeText)
         if (mode == Mode.NONE) return
 
         edge.color = Chrome.hairline
-        val sx = left + timeWidth
+        val sx = if (onLeft) left + timerWidth else left + timeWidth
         canvas.drawLine(sx, cy - dp(11f), sx, cy + dp(11f), edge)
         val color = if (ended) END else if (paused) Chrome.hint else if (warning) WARN else ACCENT
-        val ix = sx + pad + dp(ICON_DP) / 2
+        val ix = (if (onLeft) left else sx) + pad + dp(ICON_DP) / 2
         glyph.color = color
         if (mode == Mode.WATCH) drawWatch(canvas, ix, cy) else drawRing(canvas, ix, cy, (remaining().toFloat() / duration).coerceIn(0f, 1f))
         timeText.color = color

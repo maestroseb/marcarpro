@@ -125,6 +125,18 @@ internal class Floater(
         place()
     }
 
+    /** The same, keeping its right edge (a capsule on the right of the screen that grows to the left). */
+    fun resizeKeepingRight(w: Int) {
+        if (w == params.width) return
+        val right = params.x + params.width
+        params.width = w
+        coreLeft = w / 2
+        coreRight = w / 2
+        cx = right - w / 2
+        clamp()
+        place()
+    }
+
     fun moveTo(x: Int, y: Int) {
         cx = x
         cy = y
