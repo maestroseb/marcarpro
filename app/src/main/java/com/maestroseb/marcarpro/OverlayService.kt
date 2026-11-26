@@ -1963,7 +1963,9 @@ class OverlayService : Service() {
                 }
                 if (cancelled) return
                 show(DriveCardView.State.SAVING)
-                DriveLink.send(this@OverlayService, session, upload!!, uri)
+                DriveLink.send(this@OverlayService, session, upload!!, uri, { cancelled }) { p ->
+                    handler.post { if (!cancelled) driveCard?.progress = p }
+                }
                 show(DriveCardView.State.DONE)
                 handler.postDelayed({ if (driveRun === this && driveCard?.state == DriveCardView.State.DONE) closeDrive() }, DRIVE_DONE_MS)
             } catch (_: InterruptedException) {

@@ -57,20 +57,103 @@ internal object DriveLink {
         return Answer(o.optString("estado") == "listo", o.optString("subida").takeIf { it.startsWith("https://") })
     }
 
-    /** Sends [source] to the upload the teacher's Drive opened, then tells the web it's there. */
-    fun send(context: Context, session: Session, upload: String, source: Uri) {
-        val bytes = context.contentResolver.openInputStream(source)!!.use { it.readBytes() }
-        val c = open(upload, "PUT").apply {
-            setRequestProperty("Content-Type", "application/pdf")
-            doOutput = true
-            setFixedLengthStreamingMode(bytes.size)
-            outputStream.use { it.write(bytes) }
+    /**
+     * Sends [source] to the upload the teacher's Drive opened, then tells the web it's there.
+     * In pieces of [CHUNK] bytes, never the whole file in memory: a piece that fails (a school
+     * network that stalls for a moment) is asked about and sent again from where Drive has it, a
+     * few times; a piece that hangs is cut after [CHUNK_DEADLINE_MS]. Until 1.9.11 it was one PUT
+     * of the whole file with no time limit, and a stalled network left «Saving…» forever.
+     */
+    fun send(context: Context, session: Session, upload: String, source: Uri, cancelled: () -> Boolean, progress: (Float) -> Unit) {
+        context.contentResolver.openFileDescriptor(source, "r")!!.use { pfd ->
+            java.io.FileInputStream(pfd.fileDescriptor).channel.use { file -> upload(file, upload, cancelled, progress) }
         }
-        val code = c.responseCode
-        c.disconnect()
-        if (code !in 200..299) error("upload: HTTP $code")
         runCatching { answer(open(session.url("hecho"), "GET")) }
     }
+
+    /** The upload itself, piece by piece (see [send]). */
+    internal fun upload(file: java.nio.channels.FileChannel, upload: String, cancelled: () -> Boolean, progress: (Float) -> Unit) {
+                val total = file.size()
+                require(total > 0) { "empty PDF" }
+                val buf = java.nio.ByteBuffer.allocate(CHUNK)
+                var at = 0L
+                var failures = 0
+                progress(0f)
+                while (true) {
+                    if (cancelled()) throw InterruptedException()
+                    val n = minOf(CHUNK.toLong(), total - at).toInt()
+                    buf.clear()
+                    buf.limit(n)
+                    file.position(at)
+                    while (buf.hasRemaining()) if (file.read(buf) < 0) break
+                    val next = try {
+                        putPiece(upload, buf.array(), n, at, total)
+                    } catch (e: java.io.IOException) {
+                        if (++failures > MAX_FAILURES || cancelled()) throw e
+                        Thread.sleep(RETRY_MS * failures)
+                        // Where Drive has it now (the piece may have arrived after all).
+                        runCatching { whereIs(upload, total) }.getOrNull() ?: at
+                    }
+                    if (next >= total) break
+                    if (next > at) failures = 0
+                    at = next
+                    progress(at.toFloat() / total)
+                }
+                progress(1f)
+    }
+
+    private val watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+
+    /** A connection that is cut if it is still going after [CHUNK_DEADLINE_MS] (writes have no timeout). */
+    private inline fun <T> guarded(c: HttpURLConnection, block: () -> T): T {
+        val cut = watchdog.schedule({ c.disconnect() }, CHUNK_DEADLINE_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        try {
+            return block()
+        } finally {
+            cut.cancel(false)
+            c.disconnect()
+        }
+    }
+
+    /** Sends [n] bytes of [bytes] as the piece at [at]; how many bytes Drive has now ([total] = all). */
+    private fun putPiece(upload: String, bytes: ByteArray, n: Int, at: Long, total: Long): Long {
+        val c = open(upload, "PUT")
+        return guarded(c) {
+            c.setRequestProperty("Content-Type", "application/pdf")
+            c.setRequestProperty("Content-Range", "bytes $at-${at + n - 1}/$total")
+            c.doOutput = true
+            c.setFixedLengthStreamingMode(n)
+            c.outputStream.use { it.write(bytes, 0, n) }
+            received(c, total)
+        }
+    }
+
+    /** Asks Drive how much of the file it has. */
+    private fun whereIs(upload: String, total: Long): Long {
+        val c = open(upload, "PUT")
+        return guarded(c) {
+            c.setRequestProperty("Content-Range", "bytes */$total")
+            c.doOutput = true
+            c.setFixedLengthStreamingMode(0)
+            c.outputStream.close()
+            received(c, total)
+        }
+    }
+
+    /** From Drive's answer: all of it (200/201), or up to where (308 and its Range "bytes=0-N"). */
+    private fun received(c: HttpURLConnection, total: Long): Long = when (val code = c.responseCode) {
+        200, 201 -> total
+        308 -> c.getHeaderField("Range")?.substringAfterLast('-')?.toLongOrNull()?.plus(1) ?: 0L
+        in 500..599, 408, 429 -> throw java.io.IOException("upload: HTTP $code")
+        // 404/410: the upload is gone (it lasts a week); nothing to retry.
+        else -> error("upload: HTTP $code")
+    }
+
+    /** A piece: a multiple of 256 KiB, as Drive asks; small enough to resend quickly. */
+    private const val CHUNK = 2 * 1024 * 1024
+    private const val CHUNK_DEADLINE_MS = 90_000L
+    private const val MAX_FAILURES = 5
+    private const val RETRY_MS = 2_000L
 
     /** The id the web knows a session by: SHA-256 of the secret, its first 22 letters (128 bits). */
     private fun idOf(secret: String) = web64(MessageDigest.getInstance("SHA-256").digest(secret.toByteArray())).take(22)
@@ -129,6 +212,10 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
     var state = State.CONNECTING
         set(value) { field = value; invalidate() }
 
+    /** While saving: how much has gone, 0..1 (below 0: not known yet). */
+    var progress = -1f
+        set(value) { field = value; invalidate() }
+
     /** The board's file name, under the title. */
     var fileName = ""
         set(value) { field = value; invalidate() }
@@ -143,6 +230,7 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
     }
 
     fun reset() {
+        progress = -1f
         session = null
         qr?.recycle()
         qr = null
@@ -204,7 +292,14 @@ internal class DriveCardView(context: Context, private val onClose: () -> Unit) 
                 mark.color = if (busy || good) OrbStyle.TEAL else Chrome.icon
                 val rc = box.centerY() - dp(20f)
                 val rr = dp(34f)
-                if (busy) {
+                if (state == State.SAVING && progress >= 0f) {
+                    // Saving: the ring fills as the PDF goes, its share in the middle.
+                    mark.alpha = 50
+                    canvas.drawCircle(cx, rc, rr, mark)
+                    mark.alpha = 255
+                    canvas.drawArc(cx - rr, rc - rr, cx + rr, rc + rr, -90f, 360f * progress, false, mark)
+                    center(canvas, "${(progress * 100).toInt()} %", rc + small.textSize * 0.35f, small, Chrome.text)
+                } else if (busy) {
                     val sweep = (SystemClock.uptimeMillis() % 1200) / 1200f * 360f
                     canvas.drawArc(cx - rr, rc - rr, cx + rr, rc + rr, sweep, 270f, false, mark)
                     postInvalidateDelayed(32)
