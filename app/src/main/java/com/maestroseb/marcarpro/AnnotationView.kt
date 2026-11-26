@@ -1784,7 +1784,34 @@ class AnnotationView(context: Context) : ViewGroup(context) {
 
     private var markDown: MotionEvent? = null
 
+    /** A stroke that started against a maths tool's edge follows it (null: drawn as the hand goes). */
+    private var guide: ((Float, Float, FloatArray) -> Unit)? = null
+    private val guided = FloatArray(2)
+
     private fun onInk(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) guide = protractor?.guideFor(e.x, e.y)
+        val g = guide
+        if (g == null || e.pointerCount != 1) {
+            if (e.pointerCount != 1) guide = null
+            return onInkAsDrawn(e)
+        }
+        // One point per event, moved onto the edge (the samples in between would leave it).
+        val props = arrayOf(MotionEvent.PointerProperties())
+        val coords = arrayOf(MotionEvent.PointerCoords())
+        e.getPointerProperties(0, props[0])
+        e.getPointerCoords(0, coords[0])
+        g(coords[0].x, coords[0].y, guided)
+        coords[0].x = guided[0]
+        coords[0].y = guided[1]
+        val on = MotionEvent.obtain(e.downTime, e.eventTime, e.action, 1, props, coords, e.metaState, e.buttonState,
+            e.xPrecision, e.yPrecision, e.deviceId, e.edgeFlags, e.source, e.flags)
+        val handled = onInkAsDrawn(on)
+        on.recycle()
+        if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) guide = null
+        return handled
+    }
+
+    private fun onInkAsDrawn(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_DOWN) {
             swallowing = typing
             if (typing) onTypingTouch?.invoke()
