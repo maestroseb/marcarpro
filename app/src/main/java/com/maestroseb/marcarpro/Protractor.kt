@@ -27,6 +27,23 @@ import kotlin.math.sin
  * real one, and a stroke started against its edge follows it ([guideFor]).
  */
 /**
+ * The "turn" sign on the maths tools' chips: an open circle going clockwise, three quarters round
+ * from the right, and a solid arrowhead at its top pointing the way it turns.
+ */
+internal fun drawTurnGlyph(canvas: Canvas, cx: Float, cy: Float, r: Float, stroke: Paint, head: Paint, arrow: Float) {
+    canvas.drawArc(cx - r, cy - r, cx + r, cy + r, 10f, 252f, false, stroke)
+    val tipX = cx + arrow * 0.75f
+    val y = cy - r
+    val path = Path()
+    path.moveTo(tipX, y)
+    path.lineTo(tipX - arrow, y - arrow * 0.72f)
+    path.lineTo(tipX - arrow, y + arrow * 0.72f)
+    path.close()
+    head.color = stroke.color
+    canvas.drawPath(path, head)
+}
+
+/**
  * A maths tool lying on the board (protractor, ruler): a view of its own over the ink, which the
  * board asks where it is held, whether a point is on it, and how a stroke against its edge goes.
  */
@@ -296,24 +313,9 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
         canvas.drawLine(flipX + f, chipY + h, flipX - f, chipY + h, glyph)
         canvas.drawLine(flipX - f, chipY + h, flipX - f + head, chipY + h - head, glyph)
         canvas.drawLine(flipX - f, chipY + h, flipX - f + head, chipY + h + head, glyph)
-        // ↻: an open circle going clockwise, its head along the way it turns.
+        // ↻
         drawChip(canvas, turnX, chipY, dp(CHIP_DP))
-        val t = dp(7.5f)
-        r.set(turnX - t, chipY - t, turnX + t, chipY + t)
-        val start = -50f
-        val sweep = 290f
-        canvas.drawArc(r, start, sweep, false, glyph)
-        val endA = Math.toRadians((start + sweep).toDouble())
-        val ex = turnX + (cos(endA) * t).toFloat()
-        val ey = chipY + (sin(endA) * t).toFloat()
-        // The way it goes at the end (clockwise on screen), and the two strokes of the head behind it.
-        val dx = -sin(endA).toFloat()
-        val dy = cos(endA).toFloat()
-        val hl = dp(4.5f)
-        for (side in floatArrayOf(-1f, 1f)) {
-            val a2 = atan2(dy.toDouble(), dx.toDouble()) + Math.PI + side * Math.PI / 4
-            canvas.drawLine(ex, ey, ex + (cos(a2) * hl).toFloat(), ey + (sin(a2) * hl).toFloat(), glyph)
-        }
+        drawTurnGlyph(canvas, turnX, chipY, dp(7.5f), glyph, chip, dp(6.5f))
     }
 
     private fun drawChip(canvas: Canvas, cx: Float, cy: Float, rad: Float) {

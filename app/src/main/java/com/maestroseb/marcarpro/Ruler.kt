@@ -226,21 +226,7 @@ internal class RulerView(context: Context, private val onClose: () -> Unit) : Vi
         canvas.drawLine(closeX - x, chipY - x, closeX + x, chipY + x, glyph)
         canvas.drawLine(closeX + x, chipY - x, closeX - x, chipY + x, glyph)
         drawChip(canvas, turnX, chipY)
-        val t = dp(7.5f)
-        r.set(turnX - t, chipY - t, turnX + t, chipY + t)
-        val start = -50f
-        val sweep = 290f
-        canvas.drawArc(r, start, sweep, false, glyph)
-        val endA = Math.toRadians((start + sweep).toDouble())
-        val ex = turnX + (cos(endA) * t).toFloat()
-        val ey = chipY + (sin(endA) * t).toFloat()
-        val dx = -sin(endA).toFloat()
-        val dy = cos(endA).toFloat()
-        val hl = dp(4.5f)
-        for (side in floatArrayOf(-1f, 1f)) {
-            val a2 = atan2(dy.toDouble(), dx.toDouble()) + Math.PI + side * Math.PI / 4
-            canvas.drawLine(ex, ey, ex + (cos(a2) * hl).toFloat(), ey + (sin(a2) * hl).toFloat(), glyph)
-        }
+        drawTurnGlyph(canvas, turnX, chipY, dp(7.5f), glyph, chip, dp(6.5f))
 
         // While turning: its angle over the ↻; while drawing along it: the length, by the pen.
         if (zone == Zone.TURN) {
