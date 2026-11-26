@@ -89,7 +89,10 @@ internal object LamelaFriends {
         for (xx in floatArrayOf(1.7f, 1.95f, 2.2f)) add(Op.Stroke(Path().apply { moveTo(xx, -.25f); lineTo(xx + .04f, -.06f) }, 0xFFA9D6F7.toInt(), .035f))
         add(Op.Stroke(svg("M1.05 -.86 Q1.6 -.97 2.2 -.92"), 0xFF7CC0F5.toInt(), .07f))
         add(Op.Fill(svg("M1.3 -.44 Q1.58 -.06 1.72 -.42 Q1.5 -.4 1.3 -.44 Z"), tail))
-        face(2.65f, -.6f, 1.35f); cheeks(2.65f, -.6f, 1.2f)
+        // In profile, like the plesiosaur: one shiny eye and a long smile along the jaw.
+        add(Op.Circle(2.78f, -.62f, .085f, INK)); add(Op.Circle(2.8f, -.65f, .03f, W))
+        add(Op.Stroke(svg("M2.52 -.34 Q2.86 -.18 3.2 -.38"), INK, .05f))
+        add(Op.Circle(2.6f, -.47f, .065f, CHEEK, 217))
     }
 
     private val rocket: List<Op> = mutableListOf<Op>().apply {
@@ -108,11 +111,10 @@ internal object LamelaFriends {
         add(Op.Circle(1.15f, -.5f, .33f, 0xFFD6CCFF.toInt())); add(Op.Circle(1.15f, -.5f, .25f, 0xFF5CC8FF.toInt()))
         add(Op.Stroke(svg("M.98 -.6 Q1.06 -.71 1.2 -.71"), W, .06f))
         add(Op.Circle(1.27f, -.38f, .035f, W, 204))
-        for (ex in floatArrayOf(2.15f, 2.47f)) {
-            add(Op.Oval(ex, -.6f, .1f, .13f, W)); add(Op.Oval(ex + .02f, -.58f, .06f, .08f, INK)); add(Op.Circle(ex + .04f, -.62f, .022f, W))
-        }
-        add(Op.Stroke(svg("M2.18 -.32 Q2.31 -.2 2.44 -.32"), INK, .05f))
-        add(Op.Circle(2.0f, -.36f, .06f, CHEEK, 230)); add(Op.Circle(2.62f, -.36f, .06f, CHEEK, 230))
+        // In profile too: one big eye looking ahead, a smile and a cheek.
+        add(Op.Oval(2.36f, -.6f, .12f, .15f, W)); add(Op.Oval(2.4f, -.58f, .07f, .09f, INK)); add(Op.Circle(2.42f, -.62f, .025f, W))
+        add(Op.Stroke(svg("M2.24 -.31 Q2.4 -.18 2.56 -.31"), INK, .05f))
+        add(Op.Circle(2.12f, -.38f, .065f, CHEEK, 230))
         val star = 0xFFFFB020.toInt()
         add(Op.Circle(.95f, -1.75f, .045f, star)); add(Op.Circle(3.12f, -1.32f, .055f, star))
         add(Op.Fill(svg("M2.0 -1.75 l.05 .12 l.12 .02 l-.1 .07 l.03 .12 l-.1 -.07 l-.1 .07 l.03 -.12 l-.1 -.07 l.12 -.02 Z"), star))
