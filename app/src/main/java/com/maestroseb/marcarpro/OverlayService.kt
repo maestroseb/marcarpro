@@ -476,6 +476,7 @@ class OverlayService : Service() {
         val caseTint = 0xFF0C8F6F.toInt()
         val caseDrawer = listOf(
             RingItem(Tool.SHAPE, R.drawable.ic_shape, getString(R.string.tool_shape), tint = caseTint),
+            RingItem(null, R.drawable.ic_ruler, getString(R.string.tool_ruler), RingToggle.RULER, tint = caseTint),
             RingItem(null, R.drawable.ic_protractor, getString(R.string.tool_protractor), RingToggle.PROTRACTOR, tint = caseTint),
         )
         val classTint = 0xFF5C677D.toInt()
@@ -1052,6 +1053,13 @@ class OverlayService : Service() {
             RingToggle.PUPILS -> {
                 hidePalette()
                 togglePupils()
+                return
+            }
+            RingToggle.RULER -> {
+                hidePalette()
+                if (paused) togglePause()
+                ink.toggleRuler { refresh() }
+                refresh()
                 return
             }
             RingToggle.PROTRACTOR -> {
@@ -2874,7 +2882,7 @@ class OverlayService : Service() {
                 pupilsOn = prefs.fingerMode == FingerMode.WRITE
                 tint = orbTint(ink.tool)
             }
-            o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE, ink.protractorShown)
+            o.setActive(ink.tool, ink.inkHidden, prefs.fingerMode == FingerMode.WRITE, ink.protractorShown, ink.rulerShown)
             o.away = if (whiteboard && !paused) setOf(RingToggle.PUPILS.name) else emptySet()
         }
         updateQuick()

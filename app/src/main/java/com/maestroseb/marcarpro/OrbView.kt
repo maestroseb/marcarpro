@@ -86,7 +86,7 @@ internal object Chrome {
 }
 
 /** Ring items that switch something on and off instead of picking a tool. */
-internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK, PROTRACTOR }
+internal enum class RingToggle { HIDE, PUPILS, TEXT, LOCK, PROTRACTOR, RULER }
 
 /** One tool in the ring. */
 internal class RingItem(
@@ -242,11 +242,12 @@ internal class OrbitLayout(
         }
     }
 
-    fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean, protractor: Boolean = false) {
+    fun setActive(tool: Tool, hidden: Boolean, pupils: Boolean, protractor: Boolean = false, ruler: Boolean = false) {
         for (s in satellites) if (!s.item.isDrawer) s.active = when (s.item.toggle) {
             RingToggle.HIDE -> hidden
             RingToggle.PUPILS -> pupils
             RingToggle.PROTRACTOR -> protractor
+            RingToggle.RULER -> ruler
             RingToggle.TEXT, RingToggle.LOCK -> false // one-off actions, never "on"
             null -> s.item.tool == tool
         }

@@ -245,4 +245,5 @@
     <string name="tool_class">Aula</string>
     <string name="tool_protractor">Transportador</string>
     <string name="tool_case">Estuche</string>
+    <string name="tool_ruler">Regla</string>
 </resources>

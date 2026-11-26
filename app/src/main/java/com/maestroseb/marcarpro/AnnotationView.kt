@@ -707,65 +707,70 @@ class AnnotationView(context: Context) : ViewGroup(context) {
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         for (cell in cells) cell.layout(cell.x0, cell.y0, cell.x1, cell.y1)
-        protractor?.let { it.layout(0, 0, it.measuredWidth, it.measuredHeight) }
+        for (t in tools) t.view.layout(0, 0, t.view.measuredWidth, t.view.measuredHeight)
     }
 
     // region Maths tools: views of their own over the ink (moving them never repaints the board).
 
-    private var protractor: ProtractorView? = null
+    /** On the board now, the last one on top. */
+    private val tools = ArrayList<MathTool>()
     /** Whether the touch going on now started where a tool is held (then it is the tool's). */
     private var onTool = false
 
-    val protractorShown get() = protractor != null
+    val protractorShown get() = tools.any { it is ProtractorView }
+    val rulerShown get() = tools.any { it is RulerView }
 
     /** Puts the protractor on the board, or takes it away; [changed] is told when it is closed from itself. */
-    fun toggleProtractor(changed: () -> Unit) {
-        val p = protractor
-        if (p != null) {
-            removeView(p)
-            protractor = null
+    fun toggleProtractor(changed: () -> Unit) = toggleTool<ProtractorView>(changed) { close -> ProtractorView(context, close) }
+
+    /** The same for the ruler. */
+    fun toggleRuler(changed: () -> Unit) = toggleTool<RulerView>(changed) { close -> RulerView(context, close) }
+
+    private inline fun <reified T : MathTool> toggleTool(noinline changed: () -> Unit, make: (() -> Unit) -> T) {
+        tools.firstOrNull { it is T }?.let {
+            removeView(it.view)
+            tools.remove(it)
             return
         }
-        val v = ProtractorView(context) {
-            protractor?.let { removeView(it) }
-            protractor = null
+        lateinit var t: T
+        t = make {
+            removeView(t.view)
+            tools.remove(t)
             changed()
         }
-        v.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
-        v.placeIn(width, height)
-        addView(v)
-        protractor = v
+        t.view.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
+        t.placeIn(width, height)
+        addView(t.view)
+        tools.add(t)
     }
 
-    /** Two fingers on the protractor's sheet that the board got (the first one off its plate). */
-    private var pinchingTool = false
+    /** Two fingers on a tool's sheet that the board got (the first one off its handles). */
+    private var pinchingTool: MathTool? = null
 
     /**
-     * Two fingers that both land on the protractor are its own, wherever they started: the board
-     * lets go of them (its stroke or zoom cancelled) and they resize it. Otherwise the whiteboard
-     * zoomed behind it, "through" it.
+     * Two fingers that both land on a tool are its own, wherever they started: the board lets go
+     * of them (its stroke or zoom cancelled) and they resize it. Otherwise the whiteboard zoomed
+     * behind it, "through" it.
      */
     private fun toolPinch(e: MotionEvent): Boolean {
-        val p = protractor ?: return false.also { pinchingTool = false }
-        if (pinchingTool) {
+        pinchingTool?.let { p ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_MOVE -> if (e.pointerCount >= 2) p.pinchMove(e.getX(0), e.getY(0), e.getX(1), e.getY(1))
                 MotionEvent.ACTION_POINTER_UP -> p.pinchEnd()
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     p.pinchEnd()
-                    pinchingTool = false
+                    pinchingTool = null
                 }
             }
             return true
         }
-        if (e.actionMasked == MotionEvent.ACTION_POINTER_DOWN && e.pointerCount == 2 &&
-            p.onSheet(e.getX(0), e.getY(0)) && p.onSheet(e.getX(1), e.getY(1))
-        ) {
+        if (e.actionMasked == MotionEvent.ACTION_POINTER_DOWN && e.pointerCount == 2) {
+            val p = tools.lastOrNull { it.onSheet(e.getX(0), e.getY(0)) && it.onSheet(e.getX(1), e.getY(1)) } ?: return false
             val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
             onInk(cancel)
             cancel.recycle()
             p.pinchStart(e.getX(0), e.getY(0), e.getX(1), e.getY(1))
-            pinchingTool = true
+            pinchingTool = p
             return true
         }
         return false
@@ -776,13 +781,15 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     /** Every touch is the board's (the wet cells only draw), unless it starts where a tool is held. */
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
-            val p = protractor
+            for (t in tools) t.grabNext = false
             // Its handles always; anywhere else on it, a finger moves it (a pen writes on it, and
             // while fingers write, pupils' or a board without a pen, only its plate moves it).
-            val grab = p != null && !p.hitsParent(ev.x, ev.y) && p.onSheet(ev.x, ev.y) &&
-                !fingersWrite && !fingerDraws && contactOf(ev) == Contact.FINGER
-            p?.grabNext = grab
-            onTool = p != null && (grab || p.hitsParent(ev.x, ev.y))
+            val held = tools.lastOrNull { it.hitsParent(ev.x, ev.y) }
+            val grab = if (held == null && !fingersWrite && !fingerDraws) {
+                tools.lastOrNull { it.onSheet(ev.x, ev.y) }?.takeIf { contactOf(ev) == Contact.FINGER }
+            } else null
+            grab?.grabNext = true
+            onTool = held != null || grab != null
         }
         return !onTool
     }
@@ -1543,7 +1550,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             WetCell(x, y, min(x + CELL, w), min(y + CELL, h)).also { addViewInLayout(it, -1, generateDefaultLayoutParams(), true) }
         }
         // The maths tools stay on top of the new cells.
-        protractor?.let { addViewInLayout(it, -1, generateDefaultLayoutParams(), true) }
+        for (t in tools) addViewInLayout(t.view, -1, generateDefaultLayoutParams(), true)
         // A stroke being written starts again on the new cells.
         for (live in inking.values) {
             live.laid = 0
@@ -1838,11 +1845,28 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     private var guide: ((Float, Float, FloatArray) -> Unit)? = null
     private val guided = FloatArray(2)
 
+    /** The tool whose edge the stroke follows. */
+    private var guideTool: MathTool? = null
+
+    private fun endGuide() {
+        guide = null
+        guideTool?.guideEnd()
+        guideTool = null
+    }
+
     private fun onInk(e: MotionEvent): Boolean {
-        if (e.actionMasked == MotionEvent.ACTION_DOWN) guide = protractor?.guideFor(e.x, e.y)
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            endGuide()
+            for (t in tools.asReversed()) {
+                val g = t.guideFor(e.x, e.y) ?: continue
+                guide = g
+                guideTool = t
+                break
+            }
+        }
         val g = guide
         if (g == null || e.pointerCount != 1) {
-            if (e.pointerCount != 1) guide = null
+            if (e.pointerCount != 1) endGuide()
             return onInkAsDrawn(e)
         }
         // One point per event, moved onto the edge (the samples in between would leave it).
@@ -1857,7 +1881,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             e.xPrecision, e.yPrecision, e.deviceId, e.edgeFlags, e.source, e.flags)
         val handled = onInkAsDrawn(on)
         on.recycle()
-        if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) guide = null
+        if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) endGuide()
         return handled
     }
 

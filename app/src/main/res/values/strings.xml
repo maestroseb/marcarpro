@@ -242,4 +242,5 @@
     <string name="tool_class">Class</string>
     <string name="tool_protractor">Protractor</string>
     <string name="tool_case">Pencil case</string>
+    <string name="tool_ruler">Ruler</string>
 </resources>

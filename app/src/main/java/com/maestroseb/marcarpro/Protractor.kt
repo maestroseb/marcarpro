@@ -26,8 +26,28 @@ import kotlin.math.sin
  * the chips under it, two fingers to resize and turn it); a pen anywhere else on it writes, as on a
  * real one, and a stroke started against its edge follows it ([guideFor]).
  */
+/**
+ * A maths tool lying on the board (protractor, ruler): a view of its own over the ink, which the
+ * board asks where it is held, whether a point is on it, and how a stroke against its edge goes.
+ */
+internal interface MathTool {
+    val view: View
+    /** Set by the board for the touch coming: a finger on the sheet off its handles, which moves it. */
+    var grabNext: Boolean
+    fun placeIn(w: Int, h: Int)
+    fun hitsParent(x: Float, y: Float): Boolean
+    fun onSheet(x: Float, y: Float): Boolean
+    fun guideFor(x: Float, y: Float): ((Float, Float, FloatArray) -> Unit)?
+    /** The stroke that followed its edge has ended. */
+    fun guideEnd() {}
+    fun pinchStart(ax: Float, ay: Float, bx: Float, by: Float)
+    fun pinchMove(ax: Float, ay: Float, bx: Float, by: Float)
+    fun pinchEnd()
+}
+
 @SuppressLint("ViewConstructor")
-internal class ProtractorView(context: Context, private val onClose: () -> Unit) : View(context) {
+internal class ProtractorView(context: Context, private val onClose: () -> Unit) : View(context), MathTool {
+    override val view: View get() = this
     private enum class Zone { NONE, MOVE, ARM, TURN, FLIP, CLOSE }
 
     /** The size, 1 = [RADIUS_DP]; changed with two fingers. */
@@ -86,7 +106,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     }
 
     /** First placed in the middle of a [w]×[h] board, a little low. */
-    fun placeIn(w: Int, h: Int) {
+    override fun placeIn(w: Int, h: Int) {
         translationX = w / 2f - ox
         translationY = h * 0.6f - oy
         rotation = 0f
@@ -137,7 +157,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     }
 
     /** Whether a point of the board lies on the sheet itself (for two fingers anywhere on it). */
-    fun onSheet(x: Float, y: Float): Boolean {
+    override fun onSheet(x: Float, y: Float): Boolean {
         toLocal(x, y)
         val lx = pt[0]
         val ly = pt[1]
@@ -145,7 +165,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     }
 
     /** Whether a touch at ([x], [y]) in the board's coordinates lands where this tool is held. */
-    fun hitsParent(x: Float, y: Float): Boolean {
+    override fun hitsParent(x: Float, y: Float): Boolean {
         toLocal(x, y)
         return zoneAt(pt[0], pt[1]) != Zone.NONE
     }
@@ -155,7 +175,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
      * of its points onto that edge (a pencil held against it), or null. Against the curved edge it
      * follows the circle (all the way round, past the baseline); against the straight one, its line.
      */
-    fun guideFor(x: Float, y: Float): ((Float, Float, FloatArray) -> Unit)? {
+    override fun guideFor(x: Float, y: Float): ((Float, Float, FloatArray) -> Unit)? {
         toLocal(x, y)
         val lx = pt[0]
         val ly = pt[1]
@@ -308,7 +328,7 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     // region Touch
 
     /** Set by the board for the touch coming: a finger on the sheet off its handles, which moves it. */
-    var grabNext = false
+    override var grabNext = false
 
     private var zone = Zone.NONE
     private var lastX = 0f
@@ -351,17 +371,17 @@ internal class ProtractorView(context: Context, private val onClose: () -> Unit)
     // Two fingers, in the board's coordinates (also when they started on the sheet but off the plate,
     // and the board handed them over): only the size changes.
 
-    fun pinchStart(ax: Float, ay: Float, bx: Float, by: Float) {
+    override fun pinchStart(ax: Float, ay: Float, bx: Float, by: Float) {
         pinching = true
         pinchDist = hypot(bx - ax, by - ay).coerceAtLeast(1f)
         sizeFrom = size
     }
 
-    fun pinchMove(ax: Float, ay: Float, bx: Float, by: Float) {
+    override fun pinchMove(ax: Float, ay: Float, bx: Float, by: Float) {
         if (pinching) resizeTo(sizeFrom * hypot(bx - ax, by - ay) / pinchDist)
     }
 
-    fun pinchEnd() {
+    override fun pinchEnd() {
         pinching = false
     }
 
