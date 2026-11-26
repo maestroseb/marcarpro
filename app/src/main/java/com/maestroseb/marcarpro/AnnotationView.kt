@@ -722,6 +722,14 @@ class AnnotationView(context: Context) : ViewGroup(context) {
     /** Whether the touch going on now started where a tool is held (then it is the tool's). */
     private var onTool = false
 
+    /** While the screen is in use (the cursor) the tools step out of sight, kept as they were. */
+    var toolsHidden = false
+        set(value) {
+            if (field == value) return
+            field = value
+            for (t in tools) t.view.visibility = if (value) INVISIBLE else VISIBLE
+        }
+
     val protractorShown get() = tools.any { it is ProtractorView }
     val rulerShown get() = tools.any { it is RulerView }
 
@@ -745,6 +753,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         }
         t.view.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
         t.placeIn(width, height)
+        if (toolsHidden) t.view.visibility = INVISIBLE
         addView(t.view)
         tools.add(t)
     }
