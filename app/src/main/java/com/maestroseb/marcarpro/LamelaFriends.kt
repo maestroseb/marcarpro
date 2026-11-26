@@ -117,19 +117,28 @@ internal object LamelaFriends {
         add(Op.Fill(svg("M2.0 -1.75 l.05 .12 l.12 .02 l-.1 .07 l.03 .12 l-.1 -.07 l-.1 .07 l.03 -.12 l-.1 -.07 l.12 -.02 Z"), star))
     }
 
+    /** [d] moved: scaled by [k], turned [deg] degrees, then put at ([x], [y]). */
+    private fun svgAt(d: String, x: Float, y: Float, k: Float, deg: Float = 0f) =
+        svg(d).apply { transform(android.graphics.Matrix().apply { setScale(k, k); postRotate(deg); postTranslate(x, y) }) }
+
+    // The plesiosaur as approved (2026-11-27, option C): the body tapering into its tail from the middle
+    // of the back, a little two-lobed tail fin below the row, eight soft crests from the head down the
+    // neck and along the back, and one flipper on the side we see, over the body, its tip two-toned.
     private val plesiosaur: List<Op> = mutableListOf<Op>().apply {
-        add(Op.Fill(svg("M.66 -.76 C.28 -.7 .05 -.42 .07 -.02 C.09 .28 .24 .46 .42 .54 C.33 .38 .29 .2 .32 .02 C.36 -.18 .5 -.27 .66 -.27 Z"), 0xFF2FB37F.toInt()))
-        add(Op.Fill(svg("M.42 .48 Q.22 .58 .26 .78 Q.42 .72 .5 .6 Q.6 .76 .76 .7 Q.68 .52 .48 .46 Z"), 0xFFFFB547.toInt()))
-        for (sx in floatArrayOf(1.0f, 1.42f, 1.84f)) {
-            add(Op.Fill(Path().apply { moveTo(sx - .16f, -.9f); quadTo(sx - .06f, -1.3f, sx, -1.4f); quadTo(sx + .06f, -1.3f, sx + .16f, -.9f); close() }, 0xFFFFB547.toInt()))
-        }
         val green = 0xFF34C38F.toInt()
+        add(Op.Fill(svg("M.2 .4 C.05 .48 .0 .62 .06 .74 C.16 .66 .22 .58 .26 .5 C.32 .62 .42 .7 .54 .72 C.5 .58 .4 .46 .26 .38 Z"), green))
+        val crest = "M-.15 .06 C-.13 -.2 -.05 -.34 0 -.34 C.05 -.34 .13 -.2 .15 .06 Z"
+        for (c in listOf(
+            floatArrayOf(3.0f, -1.8f, 5f, .6f), floatArrayOf(2.73f, -1.71f, -31f, .75f), floatArrayOf(2.51f, -1.52f, -51f, .85f),
+            floatArrayOf(2.35f, -1.24f, -68f, .9f), floatArrayOf(2.02f, -1.0f, 0f, .9f), floatArrayOf(1.64f, -1.0f, -2f, .8f),
+            floatArrayOf(1.27f, -.98f, -8f, .7f), floatArrayOf(.9f, -.9f, -22f, .58f),
+        )) add(Op.Fill(svgAt(crest, c[0], c[1], c[3], c[2]), 0xFFFFB547.toInt()))
         add(Op.Fill(svg("M2.2 -.6 L2.26 -.88 Q2.36 -1.55 2.82 -1.76 Q3.0 -1.82 3.18 -1.78 Q3.42 -1.72 3.4 -1.48 Q3.36 -1.24 3.06 -1.22 Q2.8 -1.2 2.74 -.82 L2.74 -.5 Z"), green))
-        add(Op.Box(.5f, -1f, 2.25f, 1f, .48f, green))
-        add(Op.Fill(svg("M.8 -.16 Q1.65 -.42 2.55 -.2 Q2.5 0 2.25 0 L1.05 0 Q.85 0 .8 -.16 Z"), 0xFF7FE0B5.toInt()))
-        add(Op.Stroke(svg("M.85 -.84 Q1.5 -.96 2.3 -.86"), 0xFF5FDBA6.toInt(), .06f))
-        add(Op.Fill(svg("M2.16 -.4 C1.98 -.44 1.76 -.3 1.6 -.1 C1.47 .07 1.4 .24 1.46 .3 C1.53 .35 1.7 .22 1.86 .06 C2.02 -.1 2.16 -.22 2.21 -.3 C2.24 -.36 2.21 -.4 2.16 -.4 Z"), 0xFF1F8F63.toInt()))
-        add(Op.Stroke(svg("M2.1 -.36 C1.92 -.34 1.72 -.18 1.56 .06"), 0xFF5FD6A3.toInt(), .045f))
+        add(Op.Fill(svg("M2.3 -1 L1.6 -1 C1.05 -1 .55 -.9 .28 -.55 C.12 -.32 .14 .1 .2 .42 C.32 .26 .42 .08 .56 -.02 C.7 -.06 .85 0 1.1 0 L2.3 0 C2.62 0 2.76 -.22 2.76 -.5 C2.76 -.78 2.62 -1 2.3 -1 Z"), green))
+        add(Op.Fill(svg("M1.05 -.14 Q1.75 -.4 2.55 -.2 Q2.5 0 2.25 0 L1.2 0 Q1.05 0 1.05 -.14 Z"), 0xFF7FE0B5.toInt()))
+        add(Op.Stroke(svg("M1.15 -.86 Q1.65 -.96 2.3 -.86"), 0xFF5FDBA6.toInt(), .06f))
+        add(Op.Fill(svgAt("M.02 -.36 C.18 -.38 .26 -.18 .16 .0 C.04 .18 -.3 .28 -.5 .34 C-.68 .4 -.8 .36 -.76 .26 C-.72 .16 -.5 .06 -.34 -.04 C-.2 -.14 -.14 -.34 .02 -.36 Z", 2.26f, -.1f, 1.15f), 0xFF33C08C.toInt()))
+        add(Op.Fill(svgAt("M-.42 .3 C-.58 .37 -.74 .4 -.77 .3 C-.79 .21 -.62 .12 -.47 .05 C-.46 .14 -.44 .23 -.42 .3 Z", 2.26f, -.1f, 1.15f), 0xFF7FE0B5.toInt()))
         add(Op.Circle(3.08f, -1.54f, .08f, INK)); add(Op.Circle(3.1f, -1.57f, .028f, W))
         add(Op.Stroke(svg("M2.98 -1.36 Q3.13 -1.27 3.3 -1.37"), INK, .05f))
         add(Op.Circle(2.88f, -1.4f, .06f, CHEEK, 217))

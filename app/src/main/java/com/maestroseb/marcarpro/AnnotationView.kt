@@ -189,6 +189,8 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             linePaint.color = if (value.dark) 0x2EFFFFFF else 0x241F2329
             staffPaint.color = if (value.dark) 0x5CFFFFFF else 0x4D1F2329
             bodyPaint.color = staffPaint.color
+            lamelaPaint.color = if (value.dark) LAMELA_THIN_DARK else LAMELA_THIN
+            lamelaStrongPaint.color = if (value.dark) LAMELA_STRONG_DARK else LAMELA_STRONG_COLOR
             gridPaint.color = if (value.dark) 0x40FFFFFF else 0x2E1F2329
             redrawLayer()
         }
@@ -217,6 +219,9 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         strokeWidth = dp(2f)
     }
     private val bandPaint = Paint().apply { color = MONTESSORI_BAND }
+    // Lamela, in the notebooks' blues (the user's mockup): a fine light grid, the row's two lines strong.
+    private val lamelaPaint = Paint().apply { color = LAMELA_THIN; strokeWidth = dp(1f) }
+    private val lamelaStrongPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = LAMELA_STRONG_COLOR; strokeWidth = dp(3f) }
     private var gridLines = FloatArray(0)
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0x2E1F2329
@@ -1142,7 +1147,7 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         }
     }
 
-    private val PAPER_PAINTS by lazy { arrayOf(linePaint, staffPaint, bodyPaint, gridPaint) }
+    private val PAPER_PAINTS by lazy { arrayOf(linePaint, staffPaint, bodyPaint, gridPaint, lamelaPaint, lamelaStrongPaint) }
 
     /** The paper's pattern, [step] pixels apart on screen (see [drawPaper]). */
     private fun drawPattern(canvas: Canvas, cam: Matrix, w: Float, h: Float, step: Float) {
@@ -1211,9 +1216,11 @@ class AnnotationView(context: Context) : ViewGroup(context) {
             return
         }
         if (lamela) {
-            canvas.drawLines(gridLines, 0, strong, linePaint)
-            canvas.drawLines(gridLines, strong, (ruled * offsets.size * 4).coerceAtMost(n) - strong, bodyPaint)
-            canvas.drawLines(gridLines, ruled * offsets.size * 4, n - ruled * offsets.size * 4, linePaint)
+            // The fine grid first (thin rows and the columns), then the rows' strong lines over it.
+            val rowsEnd = (ruled * offsets.size * 4).coerceAtMost(n)
+            canvas.drawLines(gridLines, 0, strong, lamelaPaint)
+            canvas.drawLines(gridLines, rowsEnd, n - rowsEnd, lamelaPaint)
+            canvas.drawLines(gridLines, strong, rowsEnd - strong, lamelaStrongPaint)
             // The little train rides each writing row, always at the screen's left edge: it grows
             // with the zoom and goes up and down with its row, but sideways it stays put.
             if (paperStyle == Paper.LAMELA) {
@@ -3255,6 +3262,10 @@ class AnnotationView(context: Context) : ViewGroup(context) {
         const val LAMELA_PERIOD = 4f
         val LAMELA_LINES = floatArrayOf(0f, 3f, 1f, 2f)
         const val LAMELA_STRONG = 2
+        private const val LAMELA_THIN = 0xFF9DB7D6.toInt()
+        private const val LAMELA_STRONG_COLOR = 0xFF2F6FB3.toInt()
+        private const val LAMELA_THIN_DARK = 0x667FA6CC
+        private const val LAMELA_STRONG_DARK = 0xFF7FB2E8.toInt()
         private const val TRAIN_LEFT_DP = 6f
 
         /** How fast the paper's lines grow with the zoom, the most they grow, and how much darker. */
